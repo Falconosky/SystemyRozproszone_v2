@@ -1,0 +1,12 @@
+# ninja log v6
+1673	1934	1729779601646913754	untitled1	ea9a00bac93ee37f
+9	24	1734001555691111783	clean	993ad897e138fdff
+2344	2905	1729780070188159324	gtk_test	abd177bee5fd97fa
+32	2296	1734253922106578985	CMakeFiles/connection_manager.dir/checkDebugConfig.cpp.o	f0516b778ad96188
+12	202	1736355486686654401	build.ninja	a0d7394815f543ff
+27	3579	1734253922101578971	CMakeFiles/connection_manager.dir/main.cpp.o	f9de433030c15fe6
+24	5662	1734257220717473930	CMakeFiles/connection_manager.dir/client/client.cpp.o	150ae5b26ef97405
+29	3313	1734254309867650320	CMakeFiles/connection_manager.dir/connection_manager/connection_manager.cpp.o	c3c98269659d673d
+5663	6489	1734257226356499664	connection_manager	26b936f8be4c9bfa
+35	3163	1734253922110578996	CMakeFiles/connection_manager.dir/client/client_connection.cpp.o	e476ebf8a09ffcb0
+20	2097	1734256869481833162	CMakeFiles/connection_manager.dir/client/client_threads.cpp.o	5d8db26411e66a49

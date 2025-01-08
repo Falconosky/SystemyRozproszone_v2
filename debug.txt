@@ -1,0 +1,4 @@
+# w calym pliku wartosc 1 odpowiedzialna za wlaczenie trybu, lub inna wartosc w celu wylaczenia go
+# zmienna odpowiedzialna za tryb "na latwizne", ktora automatycznie wpisuje zmienne w pola aby latwiej bylo debugowac program
+1
+# ---
