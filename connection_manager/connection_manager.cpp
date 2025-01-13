@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include "connection_manager.h"
 #include "../main.h"
 
@@ -64,19 +65,45 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
 
     // Utwórz nową etykietę z napisem "Serwer włączony"
     std::string label_text = "Serwer włączony: " + std::string(ip_address) + ":" + std::to_string(port);
-    GtkWidget *label = gtk_label_new(label_text.c_str());
+    // GtkWidget *label = gtk_label_new(label_text.c_str());
+    //
+    // // Dodaj etykietę do tego samego kontenera
+    // gtk_box_pack_start(GTK_BOX(parent), label, TRUE, TRUE, 10);
+    // gtk_box_reorder_child(GTK_BOX(parent), label, position);
+    //
+    // // Wyświetl nową etykietę
+    // gtk_widget_show(label);
 
-    // Dodaj etykietę do tego samego kontenera
-    gtk_box_pack_start(GTK_BOX(parent), label, TRUE, TRUE, 10);
-    gtk_box_reorder_child(GTK_BOX(parent), label, position);
+    GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "server_address"));
+    gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
 
-    // Wyświetl nową etykietę
-    gtk_widget_show(label);
 
     g_print("Serwer nasłuchuje na %s:%d\n", ip_address, port);
 
     gtk_editable_set_editable(GTK_EDITABLE(ip_entry), FALSE);
     gtk_editable_set_editable(GTK_EDITABLE(port_entry), FALSE);
+    // Uruchom wątek obsługujący nowe połączenia
+    std::thread connection_thread([server_fd]() {
+        while (true) {
+            sockaddr_in client_addr;
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+
+            if (client_fd < 0) {
+                std::cerr << "Błąd podczas akceptowania połączenia." << std::endl;
+                continue;
+            }
+
+            char client_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+            int client_port = ntohs(client_addr.sin_port);
+
+            std::cout << "Nowe połączenie od " << client_ip << ":" << client_port << std::endl;
+
+            close(client_fd);
+        }
+    });
+    connection_thread.detach();
 }
 
 // Funkcja otwierająca nowe okno

@@ -13,10 +13,23 @@ extern std::mutex queueMutex;
 extern std::condition_variable queueCondVar;
 extern bool running;
 
-int initialize_connection(const std::string& ip_address, int port) {
+int initialize_connection(const std::string& ip_address, int port, int send_port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         std::cerr << "Nie można utworzyć gniazda." << std::endl;
+        return -1;
+    }
+
+    // Ustawianie lokalnego adresu i port
+    sockaddr_in client_addr;
+    std::memset(&client_addr, 0, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_addr.s_addr = INADDR_ANY; // Dowolny lokalny adres IP
+    client_addr.sin_port = htons(10100);     // Ustawienie portu 10100
+
+    if (bind(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
+        std::cerr << "Nie udało się związać gniazda z portem 10100." << std::endl;
+        close(sockfd);
         return -1;
     }
 

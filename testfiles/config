@@ -1,0 +1,2 @@
+# port dla klienta z ktorego wysyłac bedzie informacje, klient #1
+send_port=10100

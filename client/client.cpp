@@ -44,7 +44,9 @@ void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
     }
 
     // Inicjalizacja połączenia
-    int sockfd = initialize_connection(ip_address, port);
+    GtkWidget *send_port = GTK_WIDGET(gtk_builder_get_object(builder, "send_port"));
+    const gchar *send_port_text = gtk_entry_get_text(GTK_ENTRY(send_port));
+    int sockfd = initialize_connection(ip_address, port, atoi(send_port_text));
     if (sockfd < 0) {
         g_printerr("Błąd podczas nawiązywania połączenia.\n");
         return;
@@ -130,6 +132,21 @@ void open_client_window() {
         if (!address.empty()) {
             GtkWidget *entry_address = GTK_WIDGET(gtk_builder_get_object(builder, "entry_address"));
             GtkWidget *entry_port = GTK_WIDGET(gtk_builder_get_object(builder, "entry_port"));
+
+            ifstream config_file("../testfiles/config");
+            string line;
+            while (std::getline(config_file, line)) {
+                // Szukaj linii zaczynającej się od "send_port="
+                if (line.rfind("send_port=", 0) == 0) {
+                    // Pobierz wartość po "send_port="
+                    string port_value = line.substr(std::string("send_port=").length());
+                    // Znajdź GtkEntry "own_port"
+                    GtkWidget *entry = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+                    // Ustaw wartość w GtkEntry
+                    gtk_entry_set_text(GTK_ENTRY(entry), port_value.c_str());
+                }
+            }
+
             if (!entry_address || !entry_port) {
                 std::cerr << "Nie udało się znaleźć pól wprowadzania" << std::endl;
             }
