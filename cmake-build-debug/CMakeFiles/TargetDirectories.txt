@@ -1,3 +1,0 @@
-/home/ja/CLionProjects/untitled1/cmake-build-debug/CMakeFiles/connection_manager.dir
-/home/ja/CLionProjects/untitled1/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/ja/CLionProjects/untitled1/cmake-build-debug/CMakeFiles/rebuild_cache.dir
