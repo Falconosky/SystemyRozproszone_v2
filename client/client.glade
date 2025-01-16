@@ -60,7 +60,7 @@
             <property name="can-focus">False</property>
             <property name="orientation">vertical</property>
             <child>
-              <object class="GtkLabel">
+              <object class="GtkLabel" id="status">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="margin-start">15</property>
@@ -86,7 +86,7 @@
                   <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="label" translatable="yes">adres:</property>
+                    <property name="label" translatable="yes">Adres serwera:</property>
                   </object>
                   <packing>
                     <property name="expand">True</property>
@@ -98,6 +98,7 @@
                   <object class="GtkEntry" id="entry_address">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
+                    <property name="max-length">15</property>
                   </object>
                   <packing>
                     <property name="expand">True</property>
@@ -122,7 +123,7 @@
                   <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="label" translatable="yes">port:</property>
+                    <property name="label" translatable="yes">Port serwera:</property>
                   </object>
                   <packing>
                     <property name="expand">True</property>
@@ -134,6 +135,8 @@
                   <object class="GtkEntry" id="entry_port">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
+                    <property name="max-length">5</property>
+                    <property name="input-purpose">digits</property>
                   </object>
                   <packing>
                     <property name="expand">True</property>
@@ -149,21 +152,127 @@
               </packing>
             </child>
             <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="homogeneous">True</property>
+                <child>
+                  <object class="GtkLabel" id="send_port">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="tooltip-text" translatable="yes">Port z jakiego dane będą wysyłane z tej aplikacji</property>
+                    <property name="label" translatable="yes">Port do wysyłania</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="own_port">
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="max-length">5</property>
+                    <property name="input-purpose">digits</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="random_port">
+                <property name="label" translatable="yes">Wylosuj port wysyłający</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">True</property>
+                <signal name="clicked" handler="random_port_clicked" swapped="no"/>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="margin-top">20</property>
+                <property name="homogeneous">True</property>
+                <child>
+                  <object class="GtkLabel" id="rec_port_entry">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="tooltip-text" translatable="yes">Port z jakiego dane będą wysyłane z tej aplikacji</property>
+                    <property name="label" translatable="yes">Port do odbierania</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="rec_port">
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="max-length">5</property>
+                    <property name="input-purpose">digits</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">5</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="random_port1">
+                <property name="label" translatable="yes">Wylosuj port odbierający</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">6</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkButton" id="connect_to_server">
                 <property name="label" translatable="yes">Połącz do serwera</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">True</property>
+                <property name="margin-left">15</property>
+                <property name="margin-right">15</property>
                 <property name="margin-start">15</property>
                 <property name="margin-end">15</property>
-                <property name="margin-top">15</property>
+                <property name="margin-top">30</property>
                 <property name="margin-bottom">15</property>
                 <signal name="clicked" handler="on_connect_button_clicked" swapped="no"/>
               </object>
               <packing>
                 <property name="expand">False</property>
                 <property name="fill">True</property>
-                <property name="position">3</property>
+                <property name="position">7</property>
               </packing>
             </child>
           </object>
@@ -189,40 +298,16 @@
             <property name="can-focus">False</property>
             <property name="orientation">vertical</property>
             <child>
-              <object class="GtkBox">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="homogeneous">True</property>
-                <child>
-                  <object class="GtkLabel" id="send_port">
-                    <property name="visible">True</property>
-                    <property name="can-focus">False</property>
-                    <property name="tooltip-text" translatable="yes">Port z jakiego dane będą wysyłane z tej aplikacji</property>
-                    <property name="label" translatable="yes">Port do wysyłania</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">0</property>
-                  </packing>
-                </child>
-                <child>
-                  <object class="GtkEntry" id="own_port">
-                    <property name="visible">True</property>
-                    <property name="can-focus">True</property>
-                  </object>
-                  <packing>
-                    <property name="expand">False</property>
-                    <property name="fill">True</property>
-                    <property name="position">1</property>
-                  </packing>
-                </child>
-              </object>
-              <packing>
-                <property name="expand">False</property>
-                <property name="fill">True</property>
-                <property name="position">0</property>
-              </packing>
+              <placeholder/>
+            </child>
+            <child>
+              <placeholder/>
+            </child>
+            <child>
+              <placeholder/>
+            </child>
+            <child>
+              <placeholder/>
             </child>
           </object>
           <packing>

@@ -1,2 +1,8 @@
-# port dla klienta z ktorego wysyłac bedzie informacje, klient #1
+# domyslny port do wysylania informacji
 send_port=10100
+
+# domyslny port do odbierania informacji
+rec_port=10200
+
+# co ile sekund serwer wysyla aktualizacje listy uzytkownikow (ich adresow i portow)
+connected_user_refresh=5

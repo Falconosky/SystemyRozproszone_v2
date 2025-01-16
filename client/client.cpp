@@ -10,9 +10,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <netinet/in.h>
 #include <cstring>
+#include <cstdlib>
+#include <ctime>
 
 
 using namespace std;
@@ -21,9 +22,15 @@ std::queue<std::string> messageQueue;
 std::mutex queueMutex;
 std::condition_variable queueCondVar;
 bool running = true; // Ustawienie początkowej wartości
+bool fullScreen = false;
+GtkBuilder* builder = nullptr; // Globalna zmienna builder
+
+void debug(string text)
+{
+    std::cerr << "Debug: " << text << std::endl;
+}
 
 void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
-    GtkBuilder *builder = GTK_BUILDER(user_data);
 
     // Pobierz wartości z pól wprowadzania
     GtkWidget *entry_address = GTK_WIDGET(gtk_builder_get_object(builder, "entry_address"));
@@ -44,7 +51,7 @@ void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
     }
 
     // Inicjalizacja połączenia
-    GtkWidget *send_port = GTK_WIDGET(gtk_builder_get_object(builder, "send_port"));
+    GtkWidget *send_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
     const gchar *send_port_text = gtk_entry_get_text(GTK_ENTRY(send_port));
     int sockfd = initialize_connection(ip_address, port, atoi(send_port_text));
     if (sockfd < 0) {
@@ -53,7 +60,7 @@ void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
     }
 
     // Uruchom wątki
-    std::thread receive_thread(receive_thread_function, sockfd);
+    std::thread receive_thread(receive_thread_function);
     std::thread send_thread(send_thread_function, sockfd);
 
     // Odłącz wątki, aby działały niezależnie
@@ -61,6 +68,47 @@ void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
     send_thread.detach();
 }
 
+void insert_free_port(string objectName)
+{
+    srand(time(NULL));
+    int random_port;
+    int sockfd;
+    sockaddr_in addr;
+
+    while (true) {
+        random_port = 10000 + rand() % (65535 - 10000); // Losowy port powyżej 10000
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0) {
+            g_printerr("Nie udało się utworzyć gniazda.\n");
+            return;
+        }
+
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_port = htons(random_port);
+
+        if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) == 0) {
+            close(sockfd);
+            break; // Znaleziono wolny port
+        }
+
+        close(sockfd);
+    }
+
+    GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, objectName.c_str()));
+    char port_text[6];
+    snprintf(port_text, sizeof(port_text), "%d", random_port);
+    gtk_entry_set_text(GTK_ENTRY(entry_own_port), port_text);
+}
+
+void random_port1_clicked(GtkButton *button, gpointer user_data) {
+    insert_free_port("rec_port");
+}
+
+void random_port_clicked(GtkButton *button, gpointer user_data) {
+    insert_free_port("own_port");
+}
 
 // Funkcja pomocnicza do odczytu konkretnej linii z pliku
 std::string getLineFromFile(const std::string& filepath, int lineNumber) {
@@ -97,7 +145,7 @@ std::pair<std::string, std::string> splitString(const std::string& str, char del
 // Funkcja otwierająca nowe okno
 void open_client_window() {
     // Inicjalizacja GtkBuilder
-    GtkBuilder *builder = gtk_builder_new();
+    builder = gtk_builder_new();
     GError *error = NULL;
 
     // Ładowanie pliku connecation_manager.glade
@@ -128,7 +176,7 @@ void open_client_window() {
         // Ścieżka do pliku z adresami
         std::string addressFilePath = "../testfiles/address.txt";
         // Pobranie odpowiedniej linii na podstawie instance_id
-        std::string address = getLineFromFile(addressFilePath, instance_id);
+        std::string address = getLineFromFile(addressFilePath, 1);
         if (!address.empty()) {
             GtkWidget *entry_address = GTK_WIDGET(gtk_builder_get_object(builder, "entry_address"));
             GtkWidget *entry_port = GTK_WIDGET(gtk_builder_get_object(builder, "entry_port"));
@@ -145,12 +193,20 @@ void open_client_window() {
                     // Ustaw wartość w GtkEntry
                     gtk_entry_set_text(GTK_ENTRY(entry), port_value.c_str());
                 }
+                if (line.rfind("rec_port=", 0) == 0) {
+                    // Pobierz wartość po "send_port="
+                    string port_value = line.substr(std::string("rec_port=").length());
+                    // Znajdź GtkEntry "own_port"
+                    GtkWidget *entry = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
+                    // Ustaw wartość w GtkEntry
+                    gtk_entry_set_text(GTK_ENTRY(entry), port_value.c_str());
+                }
             }
 
             if (!entry_address || !entry_port) {
                 std::cerr << "Nie udało się znaleźć pól wprowadzania" << std::endl;
             }
-            std::string addressLine = getLineFromFile(addressFilePath, instance_id);
+            std::string addressLine = getLineFromFile(addressFilePath, 1);
             if (!addressLine.empty()) {
                 // Podział linii na adres IP i port
                 auto [ip_address, port] = splitString(addressLine, ':');
@@ -168,9 +224,14 @@ void open_client_window() {
 
     GtkWidget *connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "connect_to_server"));
     g_signal_connect(connect_button, "clicked", G_CALLBACK(on_connect_button_clicked), builder);
+    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "random_port"));
+    g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port_clicked), builder);
+    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "random_port1"));
+    g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port1_clicked), builder);
 
 
     // Pokaż nowe okno
-    gtk_window_maximize(GTK_WINDOW(new_window));
+    if (fullScreen)
+        gtk_window_maximize(GTK_WINDOW(new_window));
     gtk_widget_show_all(new_window);
 }
