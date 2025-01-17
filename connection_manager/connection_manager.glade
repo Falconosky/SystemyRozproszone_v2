@@ -255,6 +255,69 @@
                 <property name="position">0</property>
               </packing>
             </child>
+            <child>
+              <object class="GtkButton" id="force_update">
+                <property name="label" translatable="yes">Wymuś aktualizację członków</property>
+                <property name="visible">True</property>
+                <property name="can-focus">True</property>
+                <property name="receives-default">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSeparator">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="margin-top">15</property>
+                <property name="margin-bottom">15</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">2</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="homogeneous">True</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="visible">True</property>
+                    <property name="can-focus">False</property>
+                    <property name="label" translatable="yes">Ilość prób ponownego połączenia:</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="reconnect_attempts">
+                    <property name="visible">True</property>
+                    <property name="can-focus">True</property>
+                    <property name="text" translatable="yes">5</property>
+                    <property name="input-purpose">digits</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
+                </child>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">3</property>
+              </packing>
+            </child>
           </object>
           <packing>
             <property name="position">1</property>

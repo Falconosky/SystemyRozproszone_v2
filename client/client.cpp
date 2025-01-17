@@ -107,11 +107,29 @@ void insert_free_port(string objectName)
 }
 
 void random_port1_clicked(GtkButton *button, gpointer user_data) {
-    insert_free_port("rec_port");
+    GtkWidget *entry_rec_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+    const gchar *rec_port_text = gtk_entry_get_text(GTK_ENTRY(entry_rec_port));
+    int rec_port = atoi(rec_port_text);
+    int own_port;
+    do {
+        insert_free_port("rec_port");
+        GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
+        const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
+        own_port = atoi(own_port_text);
+    } while (own_port == rec_port);
 }
 
 void random_port_clicked(GtkButton *button, gpointer user_data) {
-    insert_free_port("own_port");
+    GtkWidget *entry_rec_port = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
+    const gchar *rec_port_text = gtk_entry_get_text(GTK_ENTRY(entry_rec_port));
+    int rec_port = atoi(rec_port_text);
+    int own_port;
+    do {
+        insert_free_port("own_port");
+        GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+        const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
+        own_port = atoi(own_port_text);
+    } while (own_port == rec_port);
 }
 
 // Funkcja pomocnicza do odczytu konkretnej linii z pliku
@@ -232,6 +250,9 @@ void open_client_window() {
     g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port_clicked), builder);
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "random_port1"));
     g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port1_clicked), builder);
+    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_section"));
+    g_signal_connect(connect_button, "clicked", G_CALLBACK(send_request), builder);
+
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "auto_accept"));
     g_signal_connect(connect_button, "toggled", G_CALLBACK(auto_accept_toggled), builder);
 

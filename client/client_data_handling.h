@@ -17,5 +17,6 @@ extern std::mutex process_states_mutex;
 void setup_treeview_columns(GtkTreeView *tree_view);
 void update_other_processes_view();
 void update_process_statuses();
+void update_logs();
 
 #endif //CLIENT_DATA_HANDLING_H

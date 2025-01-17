@@ -106,7 +106,7 @@
                   <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
-                    <property name="label" translatable="yes"> </property>
+                    <property name="label" translatable="yes"> Kolejny proces do SC:</property>
                   </object>
                   <packing>
                     <property name="expand">False</property>
@@ -116,7 +116,7 @@
                 </child>
                 <child>
                   <object class="GtkToggleButton" id="auto_accept">
-                    <property name="label" translatable="yes">Automatyczne akcpetowanie żądań</property>
+                    <property name="label" translatable="yes">Automatyczne akcpetuj żądania</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="receives-default">True</property>
@@ -158,7 +158,7 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkLabel">
+                  <object class="GtkLabel" id="next_process">
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <property name="label" translatable="yes"> </property>
@@ -277,7 +277,7 @@
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <child>
-                      <object class="GtkTreeView">
+                      <object class="GtkTreeView" id="logs">
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <child internal-child="selection">
@@ -682,24 +682,26 @@
                     <property name="can-focus">False</property>
                     <property name="orientation">vertical</property>
                     <child>
-                      <object class="GtkToggleButton">
-                        <property name="label" translatable="yes">togglebutton</property>
+                      <object class="GtkToggleButton" id="type_t">
+                        <property name="label" translatable="yes">T - Tablica informacji o uzytkownikach</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
+                        <property name="active">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>
-                        <property name="fill">True</property>
+                        <property name="fill">False</property>
                         <property name="position">0</property>
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkToggleButton">
-                        <property name="label" translatable="yes">togglebutton</property>
+                      <object class="GtkToggleButton" id="type_r">
+                        <property name="label" translatable="yes">R - Prośba o pozwolenie wejścia do sekcji krytycznej</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
+                        <property name="active">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>

@@ -2,6 +2,7 @@
 Slownik typow informacji:
 T - Lista polaczonych uzytkownikow (adres IP, port klienta do wysyłania, port klienta do odbioru, ID klienta)
 I - Informacja inicjalizacyjna (adres IP, port wychodzący, port odbiorczy klienta, ID klienta)
+R - Request (prośba o pozwolenie wejścia do sekcji krytycznej)
 X - Przykładowy typ informacji (dodaj inne typy w miarę potrzeb)
 */
 
@@ -38,6 +39,8 @@ struct CriticalSectionRequest {
 
 std::vector<CriticalSectionRequest> request_queue;
 std::mutex request_queue_mutex;
+std::vector<std::tuple<int, std::string, int, std::string, std::string>> logs; // Czas, Typ, Nadawca, Treść, Dodatkowe informacje
+std::mutex logs_mutex;
 
 void update_critical_status_label(const std::string& status) {
     GtkWidget *critical_status_label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
@@ -48,6 +51,70 @@ void update_lamport_clock_label() {
     GtkWidget *lamport_label = GTK_WIDGET(gtk_builder_get_object(builder, "lamport"));
     gtk_label_set_text(GTK_LABEL(lamport_label), std::to_string(lamport_clock).c_str());
 }
+
+void update_lamport_clock(int message_time)
+{
+    if (message_time > lamport_clock)
+    {
+        lamport_clock = message_time + 1;
+    }
+    else
+        lamport_clock++;
+    update_lamport_clock_label();
+}
+
+void send_request(GtkButton *button, gpointer user_data)
+{
+    // update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
+    //
+    // std::string message = "R" + std::to_string(lamport_clock) + ";"; // Budowanie wiadomości
+    //
+    // {
+    //     std::lock_guard<std::mutex> lock(global_client_list_mutex);
+    //     for (const auto& client : global_client_list) {
+    //         int send_port = std::get<1>(client);
+    //         const std::string& ip = std::get<0>(client);
+    //
+    //         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    //         if (sockfd < 0) {
+    //             std::cerr << "Nie można utworzyć gniazda dla klienta: " << ip << "." << std::endl;
+    //             continue;
+    //         }
+    //
+    //         sockaddr_in client_addr;
+    //         std::memset(&client_addr, 0, sizeof(client_addr));
+    //         client_addr.sin_family = AF_INET;
+    //         client_addr.sin_port = htons(send_port);
+    //         if (inet_pton(AF_INET, ip.c_str(), &client_addr.sin_addr) <= 0) {
+    //             std::cerr << "Nieprawidłowy adres IP klienta: " << ip << "." << std::endl;
+    //             close(sockfd);
+    //             continue;
+    //         }
+    //
+    //         if (connect(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
+    //             std::cerr << "Nie udało się połączyć z klientem: " << ip << ":" << send_port << "." << std::endl;
+    //             close(sockfd);
+    //             continue;
+    //         }
+    //
+    //         if (send(sockfd, message.c_str(), message.size(), 0) < 0) {
+    //             std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+    //         } else {
+    //             std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
+    //         }
+    //
+    //         close(sockfd);
+    //     }
+    // }
+    //
+    // {
+    //     std::lock_guard<std::mutex> lock(logs_mutex);
+    //     // TODO 1 zmienic na id procesu
+    //     logs.emplace_back(lamport_clock, "R", 1, message, "Wysłano żądanie do wszystkich klientów");
+    // }
+    // update_logs();
+}
+
 
 void receive_thread_function() {
     char buffer[1024];
@@ -109,7 +176,17 @@ void receive_thread_function() {
 
             switch (message_type) {
                 case 'T': { // Typ "Table" - lista połączonych użytkowników
-                        std::vector<std::tuple<std::string, int, int, int, std::string, int>> client_list; // IP, send_port, rec_port, client_id, message, timestamp
+                    std::vector<std::tuple<std::string, int, int, int, std::string, int>> client_list; // IP, send_port, rec_port, client_id, message, timestamp
+                    std::vector<std::tuple<int, std::string, int, std::string, std::string>> log; // Czas, Typ, Nadawca, Treść, Dodatkowe informacje
+
+                    GtkWidget *entry_send_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+                    GtkWidget *entry_rec_port = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
+
+                    const gchar *self_send_port_text = gtk_entry_get_text(GTK_ENTRY(entry_send_port));
+                    const gchar *self_rec_port_text = gtk_entry_get_text(GTK_ENTRY(entry_rec_port));
+
+                    int self_send_port = atoi(self_send_port_text);
+                    int self_rec_port = atoi(self_rec_port_text);
 
                     // Parsuj listę klientów
                     size_t start = 1; // Pomijamy pierwszy znak (typ)
@@ -127,10 +204,26 @@ void receive_thread_function() {
                             int rec_port = std::stoi(client_info.substr(second_separator + 1, third_separator - second_separator - 1));
                             int client_id = std::stoi(client_info.substr(third_separator + 1));
 
+                            if (send_port == self_send_port && rec_port == self_rec_port) {
+                                start = (end == std::string::npos) ? end : end + 1;
+                                continue;
+                            }
+
                             client_list.emplace_back(ip, send_port, rec_port, client_id, "Nieznany", 0);
                         }
 
                         start = (end == std::string::npos) ? end : end + 1;
+                    }
+
+                    update_lamport_clock(0);
+
+                    GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_t"));
+                    if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button))) {
+                        {
+                            std::lock_guard<std::mutex> lock(logs_mutex);
+                            logs.emplace_back(lamport_clock, "T", 0, message, "");
+                        }
+                        update_logs();
                     }
 
                     // Zaktualizuj globalną listę klientów
@@ -154,6 +247,49 @@ void receive_thread_function() {
                     }
                     break;
                 }
+
+                case 'R':
+                    {
+                        GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_r"));
+                        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button))) {
+                            size_t start = 1; // Pomijamy pierwszy znak (typ)
+                            if (start < message.size()) {
+                                size_t end = message.find(';', start); // Znajdujemy średnik kończący wiadomość
+                                if (end != std::string::npos) {
+                                    std::string single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
+                                    int sender_id = 0;
+
+                                    sockaddr_in client_addr;
+                                    socklen_t client_len;
+                                    getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
+                                    int sender_port = ntohs(client_addr.sin_port);
+
+                                    {
+                                        std::lock_guard<std::mutex> lock(global_client_list_mutex);
+                                        for (const auto& client : global_client_list) {
+                                            if (std::get<2>(client) == sender_port) {
+                                                sender_id = std::get<3>(client);
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    {
+                                        std::lock_guard<std::mutex> lock(logs_mutex);
+                                        logs.emplace_back(lamport_clock, "R", sender_id, message, "");
+                                    }
+                                    update_logs();
+
+                                    std::cout << "Odebrano pole: " << single_field << std::endl;
+                                } else {
+                                    std::cerr << "Błąd: brak średnika kończącego wiadomość.\n";
+                                }
+                            } else {
+                                std::cerr << "Błąd: wiadomość jest zbyt krótka.\n";
+                            }
+                        }
+                        break;
+                    }
 
                 default:
                     std::cerr << "Nieznany typ wiadomości: " << message_type << std::endl;

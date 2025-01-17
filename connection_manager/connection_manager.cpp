@@ -13,31 +13,27 @@
 #include "connection_manager.h"
 #include "../main.h"
 
-std::vector<std::tuple<std::string, int, int, int>> connected_clients; // IP, send_port, rec_port, client_id
+std::vector<std::tuple<std::string, int, int, int, int>> connected_clients; // IP, send_port, rec_port, client_id
 std::mutex clients_mutex;
 
-int get_refresh_interval(const std::string& config_path) {
-    std::ifstream config_file(config_path);
-    if (!config_file.is_open()) {
-        std::cerr << "Nie można otworzyć pliku konfiguracyjnego: " << config_path << std::endl;
+int get_refresh_interval_from_entry(GtkEntry *refresh_entry) {
+    const gchar *refresh_text = gtk_entry_get_text(refresh_entry);
+    try {
+        return std::stoi(refresh_text);
+    } catch (...) {
+        std::cerr << "Nieprawidłowa wartość interwału w polu entry." << std::endl;
         return 5; // Domyślny interwał w sekundach
     }
+}
 
-    std::string line;
-    while (std::getline(config_file, line)) {
-        size_t pos = line.find("connected_user_refresh=");
-        if (pos != std::string::npos) {
-            try {
-                return std::stoi(line.substr(pos + std::string("connected_user_refresh=").length()));
-            } catch (...) {
-                std::cerr << "Nieprawidłowa wartość interwału w pliku konfiguracyjnym." << std::endl;
-                return 5;
-            }
-        }
+int get_reconnect_attempts_from_entry(GtkEntry *reconnect_entry) {
+    const gchar *attempts_text = gtk_entry_get_text(reconnect_entry);
+    try {
+        return std::stoi(attempts_text);
+    } catch (...) {
+        std::cerr << "Nieprawidłowa wartość liczby prób w polu entry." << std::endl;
+        return 3; // Domyślna liczba prób
     }
-
-    std::cerr << "Nie znaleziono ustawienia 'connected_user_refresh' w pliku konfiguracyjnym." << std::endl;
-    return 5; // Domyślny interwał w sekundach
 }
 
 // Funkcja do aktualizacji widoku listy klientów
@@ -73,36 +69,60 @@ void send_connected_clients_list(int client_fd) {
 
 // Funkcja do wysyłania listy klientów do wszystkich podłączonych klientów
 void broadcast_clients_list() {
+    GtkEntry *reconnect_entry = GTK_ENTRY(gtk_builder_get_object(builder, "reconnect_attempts"));
+    int max_attempts = get_reconnect_attempts_from_entry(reconnect_entry);
     std::lock_guard<std::mutex> lock(clients_mutex);
     std::string message = "T";
     for (const auto &client : connected_clients) {
         message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ":" + std::to_string(std::get<3>(client)) + ";";
     }
 
-    for (const auto &client : connected_clients) {
+    for (auto it = connected_clients.begin(); it != connected_clients.end();) {
         int client_fd = socket(AF_INET, SOCK_STREAM, 0);
         if (client_fd < 0) {
             std::cerr << "Błąd otwarcia gniazda dla klienta." << std::endl;
+            ++it;
             continue;
         }
 
         sockaddr_in client_addr;
         memset(&client_addr, 0, sizeof(client_addr));
         client_addr.sin_family = AF_INET;
-        client_addr.sin_port = htons(std::get<2>(client)); // Zmieniono na port odbiorczy
-        inet_pton(AF_INET, std::get<0>(client).c_str(), &client_addr.sin_addr);
+        client_addr.sin_port = htons(std::get<2>(*it)); // Port odbiorczy
+        inet_pton(AF_INET, std::get<0>(*it).c_str(), &client_addr.sin_addr);
 
         if (connect(client_fd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-            std::cerr << "Nie udało się połączyć z klientem " << std::get<0>(client) << ":" << std::get<2>(client) << std::endl;
+            std::cerr << "Nie udało się połączyć z klientem " << std::get<0>(*it) << ":" << std::get<2>(*it) << std::endl;
             close(client_fd);
+
+            // Zwiększ licznik nieudanych prób
+            std::get<4>(*it)++;
+
+            // Usuń klienta, jeśli liczba prób przekroczy limit
+            if (std::get<4>(*it) > max_attempts) {
+                std::cout << "Usuwanie klienta: " << std::get<0>(*it) << " po " << std::get<4>(*it) << " nieudanych próbach." << std::endl;
+                it = connected_clients.erase(it);
+
+                continue;
+            }
+            ++it;
             continue;
         }
 
-        send(client_fd, message.c_str(), message.size(), 0);
+        if (send(client_fd, message.c_str(), message.size(), 0) < 0) {
+            std::cerr << "Błąd wysyłania wiadomości do klienta " << std::get<0>(*it) << std::endl;
+            close(client_fd);
+            ++it;
+            continue;
+        }
         close(client_fd);
 
         // Debugowanie: wypisz wysłaną wiadomość
-        std::cout << "Wysłano wiadomość do klienta " << std::get<0>(client) << ":" << std::get<2>(client) << " -> " << message << std::endl;
+        // Zresetuj licznik nieudanych prób po udanym połączeniu
+        std::get<4>(*it) = 0;
+
+        std::cout << "Wysłano wiadomość do klienta " << std::get<0>(*it) << ":" << std::get<2>(*it) << " -> " << message << std::endl;
+        ++it;
     }
 }
 
@@ -130,6 +150,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     GtkEntry *ip_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_ip"));
     GtkEntry *port_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_port"));
     GtkTreeView *clients_treeview = GTK_TREE_VIEW(gtk_builder_get_object(builder, "clients_address"));
+    GtkEntry *refresh_entry = GTK_ENTRY(gtk_builder_get_object(builder, "refresh_interval"));
 
     const gchar *ip_address = gtk_entry_get_text(GTK_ENTRY(ip_entry));
     const gchar *port_text = gtk_entry_get_text(GTK_ENTRY(port_entry));
@@ -182,9 +203,6 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     // Ukryj przycisk "Start serwer"
     GtkWidget *start_button = GTK_WIDGET(button);
     gtk_widget_hide(start_button);
-
-    std::string config_path = "../testfiles/config";
-    int refresh_interval = get_refresh_interval(config_path);
 
     std::thread connection_thread([server_fd, clients_treeview]() {
         while (true) {
@@ -239,13 +257,12 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
                         if (buffer[0] == 'I') {
                             {
                                 std::lock_guard<std::mutex> lock(clients_mutex);
-                                connected_clients.emplace_back(ip, send_port, rec_port, client_id);
+                                connected_clients.emplace_back(ip, send_port, rec_port, client_id,0);
                             }
-
-                            update_clients_list(clients_treeview);
 
                             std::cout << "Zaktualizowano listę klientów: " << ip << ", Send Port: " << send_port
                                       << ", Rec Port: " << rec_port << ", ID: " << client_id << std::endl;
+                            update_clients_list(clients_treeview);
                         }
                     }
                 }
@@ -259,8 +276,9 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
         }
     });
 
-    std::thread refresh_thread([refresh_interval]() {
+    std::thread refresh_thread([refresh_entry, clients_treeview]() {
         while (true) {
+            int refresh_interval = get_refresh_interval_from_entry(refresh_entry);
             {
                 std::lock_guard<std::mutex> lock(clients_mutex);
                 std::cout << "Odświeżanie listy klientów:" << std::endl;
@@ -279,7 +297,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
 }
 
 void open_connection_manager_window() {
-    GtkBuilder *builder = gtk_builder_new();
+    builder = gtk_builder_new();
     GError *error = NULL;
 
     if (gtk_builder_add_from_file(builder, "../connection_manager/connection_manager.glade", &error) == 0) {
@@ -309,6 +327,9 @@ void open_connection_manager_window() {
 
     column = gtk_tree_view_column_new_with_attributes("Client ID", renderer, "text", 3, NULL);
     gtk_tree_view_append_column(clients_treeview, column);
+
+    GtkWidget *connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "force_update"));
+    g_signal_connect(connect_button, "clicked", G_CALLBACK(broadcast_clients_list), builder);
 
     gtk_widget_show_all(new_window);
 }
