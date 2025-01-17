@@ -13,10 +13,8 @@
 #include "connection_manager.h"
 #include "../main.h"
 
-std::vector<std::tuple<std::string, int, int>> connected_clients; // IP, send_port, rec_port
+std::vector<std::tuple<std::string, int, int, int>> connected_clients; // IP, send_port, rec_port, client_id
 std::mutex clients_mutex;
-
-extern GtkBuilder *builder;
 
 int get_refresh_interval(const std::string& config_path) {
     std::ifstream config_file(config_path);
@@ -55,6 +53,7 @@ void update_clients_list(GtkTreeView *treeview) {
                            0, std::get<0>(client).c_str(),
                            1, std::get<1>(client),
                            2, std::get<2>(client),
+                           3, std::get<3>(client),
                            -1);
     }
 }
@@ -64,17 +63,20 @@ void send_connected_clients_list(int client_fd) {
     std::lock_guard<std::mutex> lock(clients_mutex);
     std::string message = "T"; // Typ wiadomości: Table (lista klientów)
     for (const auto &client : connected_clients) {
-        message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ";";
+        message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ":" + std::to_string(std::get<3>(client)) + ";";
     }
     send(client_fd, message.c_str(), message.size(), 0);
+
+    // Debugowanie: wypisz wysłaną wiadomość
     std::cout << "Wysłano wiadomość do klienta: " << message << std::endl;
 }
 
+// Funkcja do wysyłania listy klientów do wszystkich podłączonych klientów
 void broadcast_clients_list() {
     std::lock_guard<std::mutex> lock(clients_mutex);
     std::string message = "T";
     for (const auto &client : connected_clients) {
-        message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ";";
+        message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ":" + std::to_string(std::get<3>(client)) + ";";
     }
 
     for (const auto &client : connected_clients) {
@@ -87,7 +89,7 @@ void broadcast_clients_list() {
         sockaddr_in client_addr;
         memset(&client_addr, 0, sizeof(client_addr));
         client_addr.sin_family = AF_INET;
-        client_addr.sin_port = htons(std::get<2>(client));
+        client_addr.sin_port = htons(std::get<2>(client)); // Zmieniono na port odbiorczy
         inet_pton(AF_INET, std::get<0>(client).c_str(), &client_addr.sin_addr);
 
         if (connect(client_fd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
@@ -98,13 +100,33 @@ void broadcast_clients_list() {
 
         send(client_fd, message.c_str(), message.size(), 0);
         close(client_fd);
+
+        // Debugowanie: wypisz wysłaną wiadomość
         std::cout << "Wysłano wiadomość do klienta " << std::get<0>(client) << ":" << std::get<2>(client) << " -> " << message << std::endl;
     }
 }
 
+// Funkcja obsługi żądania nowego ID klienta
+int get_next_available_id() {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (int id = 1; id <= 99; ++id) {
+        bool id_taken = false;
+        for (const auto &client : connected_clients) {
+            if (std::get<3>(client) == id) {
+                id_taken = true;
+                break;
+            }
+        }
+        if (!id_taken) {
+            return id;
+        }
+    }
+    return -1; // Brak dostępnych ID
+}
+
 // Funkcja obsługi sygnału kliknięcia przycisku "Start serwer"
 extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
-    builder = GTK_BUILDER(user_data);
+    GtkBuilder *builder = GTK_BUILDER(user_data);
     GtkEntry *ip_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_ip"));
     GtkEntry *port_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_port"));
     GtkTreeView *clients_treeview = GTK_TREE_VIEW(gtk_builder_get_object(builder, "clients_address"));
@@ -175,36 +197,56 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
                 continue;
             }
 
+            char client_ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+            int client_port = ntohs(client_addr.sin_port);
+
             // Odbieranie informacji od klienta i debugowanie
             char buffer[1024];
             ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
             if (bytes_received > 0) {
                 buffer[bytes_received] = '\0';
-                std::cerr << buffer << std::endl;
+                std::cout << "Otrzymano wiadomość od klienta: " << buffer << std::endl;
 
-                // Parsowanie wiadomości inicjalizacyjnej (I:127.0.0.1:10100:10200;)
-                if (buffer[0] == 'I') {
+                // Parsowanie wiadomości inicjalizacyjnej lub żądania ID
+                if (buffer[0] == 'I' || buffer[0] == 'D') {
                     std::string message(buffer);
                     size_t first_colon = message.find(':');
                     size_t second_colon = message.find(':', first_colon + 1);
                     size_t third_colon = message.find(':', second_colon + 1);
-                    size_t semicolon = message.find(';', third_colon + 1);
+                    size_t fourth_colon = message.find(':', third_colon + 1);
+                    size_t semicolon = message.find(';', fourth_colon + 1);
 
                     if (first_colon != std::string::npos && second_colon != std::string::npos &&
-                        third_colon != std::string::npos && semicolon != std::string::npos) {
+                        third_colon != std::string::npos && fourth_colon != std::string::npos && semicolon != std::string::npos) {
                         std::string ip = message.substr(first_colon + 1, second_colon - first_colon - 1);
                         int send_port = std::stoi(message.substr(second_colon + 1, third_colon - second_colon - 1));
-                        int rec_port = std::stoi(message.substr(third_colon + 1, semicolon - third_colon - 1));
+                        int rec_port = std::stoi(message.substr(third_colon + 1, fourth_colon - third_colon - 1));
+                        int client_id = std::stoi(message.substr(fourth_colon + 1, semicolon - fourth_colon - 1));
 
-                        {
-                            std::lock_guard<std::mutex> lock(clients_mutex);
-                            connected_clients.emplace_back(ip, send_port, rec_port);
+                        if (client_id == 0) {
+                            client_id = get_next_available_id();
+                            if (client_id == -1) {
+                                std::cerr << "Brak dostępnych ID dla klienta." << std::endl;
+                                close(client_fd);
+                                continue;
+                            }
+                            std::string response = "D:" + ip + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(client_id) + ";";
+                            send(client_fd, response.c_str(), response.size(), 0);
+                            std::cout << "Wysłano nowe ID do klienta: " << client_id << std::endl;
                         }
 
-                        update_clients_list(clients_treeview);
+                        if (buffer[0] == 'I') {
+                            {
+                                std::lock_guard<std::mutex> lock(clients_mutex);
+                                connected_clients.emplace_back(ip, send_port, rec_port, client_id);
+                            }
 
-                        std::cout << "Zaktualizowano listę klientów: " << ip << ", Send Port: " << send_port
-                                  << ", Rec Port: " << rec_port << std::endl;
+                            update_clients_list(clients_treeview);
+
+                            std::cout << "Zaktualizowano listę klientów: " << ip << ", Send Port: " << send_port
+                                      << ", Rec Port: " << rec_port << ", ID: " << client_id << std::endl;
+                        }
                     }
                 }
             } else if (bytes_received == 0) {
@@ -212,10 +254,6 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
             } else {
                 std::cerr << "Błąd podczas odbierania danych od klienta." << std::endl;
             }
-
-            char client_ip[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-            int client_port = ntohs(client_addr.sin_port);
 
             close(client_fd);
         }
@@ -228,18 +266,18 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
                 std::cout << "Odświeżanie listy klientów:" << std::endl;
                 for (const auto &client : connected_clients) {
                     std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
-                              << ", Port odbioru: " << std::get<2>(client) << std::endl;
+                              << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client) << std::endl;
                 }
             }
             broadcast_clients_list();
             std::this_thread::sleep_for(std::chrono::seconds(refresh_interval));
         }
     });
+
     connection_thread.detach();
     refresh_thread.detach();
 }
 
-// Funkcja otwierająca nowe okno
 void open_connection_manager_window() {
     GtkBuilder *builder = gtk_builder_new();
     GError *error = NULL;
@@ -255,7 +293,7 @@ void open_connection_manager_window() {
     gtk_builder_connect_signals(builder, builder);
 
     GtkTreeView *clients_treeview = GTK_TREE_VIEW(gtk_builder_get_object(builder, "clients_address"));
-    GtkListStore *list_store = gtk_list_store_new(3, G_TYPE_STRING, G_TYPE_INT, G_TYPE_INT); // Dodano trzecią kolumnę dla rec_port
+    GtkListStore *list_store = gtk_list_store_new(4, G_TYPE_STRING, G_TYPE_INT, G_TYPE_INT, G_TYPE_INT); // Dodano czwartą kolumnę dla client_id
     gtk_tree_view_set_model(clients_treeview, GTK_TREE_MODEL(list_store));
     g_object_unref(list_store);
 
@@ -267,6 +305,9 @@ void open_connection_manager_window() {
     gtk_tree_view_append_column(clients_treeview, column);
 
     column = gtk_tree_view_column_new_with_attributes("Receive Port", renderer, "text", 2, NULL);
+    gtk_tree_view_append_column(clients_treeview, column);
+
+    column = gtk_tree_view_column_new_with_attributes("Client ID", renderer, "text", 3, NULL);
     gtk_tree_view_append_column(clients_treeview, column);
 
     gtk_widget_show_all(new_window);

@@ -7,13 +7,14 @@
 #include <mutex>
 #include <condition_variable>
 #include <gtk/gtk.h>
+#include <algorithm>
 
 extern std::queue<std::string> messageQueue;
 extern std::mutex queueMutex;
 extern std::condition_variable queueCondVar;
 extern bool running;
 extern GtkBuilder* builder; // Deklaracja globalnej zmiennej
-extern std::vector<std::tuple<std::string, int, int>> global_client_list;
+extern int lamport_clock;
 
 int initialize_connection(const std::string& ip_address, int port, int send_port);
 void receive_thread_function();

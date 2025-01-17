@@ -1,4 +1,10 @@
-#include "client_threads.h"
+/*
+Slownik typow informacji:
+T - Lista polaczonych uzytkownikow (adres IP, port klienta do wysyłania, port klienta do odbioru, ID klienta)
+I - Informacja inicjalizacyjna (adres IP, port wychodzący, port odbiorczy klienta, ID klienta)
+X - Przykładowy typ informacji (dodaj inne typy w miarę potrzeb)
+*/
+
 #include <iostream>
 #include <cstring>
 #include <sys/socket.h>
@@ -9,13 +15,9 @@
 #include <condition_variable>
 #include <gtk/gtk.h>
 #include <vector>
-
-/*
-Slownik typow informacji:
-T - Lista polaczonych uzytkownikow (adres IP, port klienta do wysyłania, port klienta do odbioru)
-I - Informacja inicjalizacyjna (adres IP, port wychodzący, port odbiorczy klienta)
-X - Przykładowy typ informacji (dodaj inne typy w miarę potrzeb)
-*/
+#include "client_data_handling.h"
+#include "client_threads.h"
+#include "connection_initialize.h"
 
 extern std::queue<std::string> messageQueue;
 extern std::mutex queueMutex;
@@ -23,83 +25,28 @@ extern std::condition_variable queueCondVar;
 extern bool running;
 extern GtkBuilder *builder;
 
-std::vector<std::tuple<std::string, int, int>> global_client_list;
+std::vector<std::tuple<std::string, int, int, int, std::string, int>> global_client_list; // IP, send_port, rec_port, client_id, message, timestamp
 std::mutex global_client_list_mutex;
 
-int initialize_connection(const std::string& ip_address, int port, int send_port) {
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        std::cerr << "Nie można utworzyć gniazda." << std::endl;
-        return -1;
-    }
+bool in_critical_section = false;
+int lamport_clock = 0;
 
-    GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
-    const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
-    int own_port = atoi(own_port_text);
-    if (own_port <= 0) {
-        std::cerr << "Nieprawidłowy port własny." << std::endl;
-        close(sockfd);
-        return -1;
-    }
+struct CriticalSectionRequest {
+    int timestamp;
+    int process_id;
+};
 
-    // Pobranie portu nasłuchującego z pola GtkEntry
-    GtkWidget *entry_rec_port = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
-    const gchar *rec_port_text = gtk_entry_get_text(GTK_ENTRY(entry_rec_port));
-    int rec_port = atoi(rec_port_text);
-    if (rec_port <= 0) {
-        std::cerr << "Nieprawidłowy port nasłuchujący." << std::endl;
-        close(sockfd);
-        return -1;
-    }
+std::vector<CriticalSectionRequest> request_queue;
+std::mutex request_queue_mutex;
 
-    // Ustawianie lokalnego adresu i port
-    sockaddr_in client_addr;
-    std::memset(&client_addr, 0, sizeof(client_addr));
-    client_addr.sin_family = AF_INET;
-    client_addr.sin_addr.s_addr = INADDR_ANY; // Dowolny lokalny adres IP
-    client_addr.sin_port = htons(own_port);
+void update_critical_status_label(const std::string& status) {
+    GtkWidget *critical_status_label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
+    gtk_label_set_text(GTK_LABEL(critical_status_label), status.c_str());
+}
 
-    if (bind(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
-        std::cerr << "Nie udało się związać gniazda z portem " << own_port << "." << std::endl;
-        close(sockfd);
-        return -1;
-    }
-
-    sockaddr_in server_addr;
-    std::memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, ip_address.c_str(), &server_addr.sin_addr) <= 0) {
-        std::cerr << "Nieprawidłowy adres IP." << std::endl;
-        close(sockfd);
-        return -1;
-    }
-
-    if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        std::cerr << "Połączenie nieudane." << std::endl;
-        GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "status"));
-        std::string label_text = "Połączenie nieudane";
-        gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
-        close(sockfd);
-        return -1;
-    }
-    GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "status"));
-    std::string label_text = "Pomyślnie połączono do serwera";
-    gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
-
-    // Wysyłanie informacji inicjalizacyjnej do serwera
-    std::string init_message = "I:" + ip_address + ":" + std::to_string(own_port) + ":" + std::to_string(rec_port) + ";";
-    if (send(sockfd, init_message.c_str(), init_message.size(), 0) < 0) {
-        std::cerr << "Błąd podczas wysyłania informacji inicjalizacyjnej do serwera." << std::endl;
-        close(sockfd);
-        return -1;
-    }
-
-    std::cout << "Połączono z serwerem: " << ip_address << ":" << port
-              << " i wysłano informacje inicjalizacyjne: "
-              << "IP: " << ip_address << ", Send Port: " << own_port << ", Rec Port: " << rec_port << std::endl;
-
-    return sockfd;
+void update_lamport_clock_label() {
+    GtkWidget *lamport_label = GTK_WIDGET(gtk_builder_get_object(builder, "lamport"));
+    gtk_label_set_text(GTK_LABEL(lamport_label), std::to_string(lamport_clock).c_str());
 }
 
 void receive_thread_function() {
@@ -162,38 +109,48 @@ void receive_thread_function() {
 
             switch (message_type) {
                 case 'T': { // Typ "Table" - lista połączonych użytkowników
-                    std::vector<std::tuple<std::string, int, int>> client_list; // IP, send_port, rec_port
+                        std::vector<std::tuple<std::string, int, int, int, std::string, int>> client_list; // IP, send_port, rec_port, client_id, message, timestamp
 
                     // Parsuj listę klientów
                     size_t start = 1; // Pomijamy pierwszy znak (typ)
-                        while (start < message.size()) {
-                            size_t end = message.find(';', start);
-                            std::string client_info = message.substr(start, end - start);
+                    while (start < message.size()) {
+                        size_t end = message.find(';', start);
+                        std::string client_info = message.substr(start, end - start);
 
-                            size_t first_separator = client_info.find(":");
-                            size_t second_separator = client_info.find(":", first_separator + 1);
+                        size_t first_separator = client_info.find(":");
+                        size_t second_separator = client_info.find(":", first_separator + 1);
+                        size_t third_separator = client_info.find(":", second_separator + 1);
 
-                            if (first_separator != std::string::npos && second_separator != std::string::npos) {
-                                std::string ip = client_info.substr(0, first_separator);
-                                int send_port = std::stoi(client_info.substr(first_separator + 1, second_separator - first_separator - 1));
-                                int rec_port = std::stoi(client_info.substr(second_separator + 1));
+                        if (first_separator != std::string::npos && second_separator != std::string::npos && third_separator != std::string::npos) {
+                            std::string ip = client_info.substr(0, first_separator);
+                            int send_port = std::stoi(client_info.substr(first_separator + 1, second_separator - first_separator - 1));
+                            int rec_port = std::stoi(client_info.substr(second_separator + 1, third_separator - second_separator - 1));
+                            int client_id = std::stoi(client_info.substr(third_separator + 1));
 
-                                client_list.emplace_back(ip, send_port, rec_port);
-                            }
-
-                            start = (end == std::string::npos) ? end : end + 1;
+                            client_list.emplace_back(ip, send_port, rec_port, client_id, "Nieznany", 0);
                         }
 
-                    {
-                    std::lock_guard<std::mutex> lock(global_client_list_mutex);
-                    global_client_list = client_list;
+                        start = (end == std::string::npos) ? end : end + 1;
                     }
+
+                    // Zaktualizuj globalną listę klientów
+                    {
+                        std::lock_guard<std::mutex> lock(global_client_list_mutex);
+                        global_client_list = client_list;
+                    }
+
+                    // Aktualizuj statusy procesów
+                    update_process_statuses();
+
+                    // Zaktualizuj widok użytkowników w GtkTreeView
+                    update_other_processes_view();
 
                     // Wyświetl listę klientów w konsoli
                     std::cout << "Lista połączonych klientów:" << std::endl;
                     for (const auto& client : client_list) {
                         std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
-                                  << ", Port odbioru: " << std::get<2>(client) << std::endl;
+                                  << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client)
+                                    << ", Komunikat: " << std::get<4>(client) << ", Timestamp: " << std::get<5>(client) << std::endl;
                     }
                     break;
                 }
@@ -209,6 +166,7 @@ void receive_thread_function() {
         }
         close(client_fd);
     }
+
     close(sockfd);
 }
 
@@ -230,16 +188,6 @@ void send_thread_function(int sockfd) {
             send(sockfd, response.c_str(), response.size(), 0);
 
             lock.lock();
-        }
-
-        // Przykład użycia globalnej listy klientów w wątku send_thread_function
-        {
-            std::lock_guard<std::mutex> lock(global_client_list_mutex);
-            std::cout << "Globalna lista klientów dostępna w wątku send_thread_function:" << std::endl;
-            for (const auto& client : global_client_list) {
-                std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
-                          << ", Port odbioru: " << std::get<2>(client) << std::endl;
-            }
         }
     }
 }

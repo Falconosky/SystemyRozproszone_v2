@@ -30,12 +30,16 @@ void debug(string text)
     std::cerr << "Debug: " << text << std::endl;
 }
 
-void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
+void auto_accept_toggled(GtkToggleButton *toggle_button, gpointer user_data)
+{
+    GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+    gboolean is_active = gtk_toggle_button_get_active(toggle_button);
+    gtk_widget_set_sensitive(accept_button, !is_active);
+}
 
-    // Pobierz wartości z pól wprowadzania
+void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
     GtkWidget *entry_address = GTK_WIDGET(gtk_builder_get_object(builder, "entry_address"));
     GtkWidget *entry_port = GTK_WIDGET(gtk_builder_get_object(builder, "entry_port"));
-
     const gchar *ip_address = gtk_entry_get_text(GTK_ENTRY(entry_address));
     const gchar *port_text = gtk_entry_get_text(GTK_ENTRY(entry_port));
 
@@ -228,6 +232,8 @@ void open_client_window() {
     g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port_clicked), builder);
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "random_port1"));
     g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port1_clicked), builder);
+    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "auto_accept"));
+    g_signal_connect(connect_button, "toggled", G_CALLBACK(auto_accept_toggled), builder);
 
 
     // Pokaż nowe okno
