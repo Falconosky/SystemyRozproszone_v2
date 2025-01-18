@@ -8,6 +8,8 @@
 
 using namespace std;
 
+bool debug2 = true;
+
 // Funkcje obsługi kliknięcia dla przycisków
 extern "C" void klient_click(GtkButton *button, gpointer user_data) {
     GtkWidget *current_window = GTK_WIDGET(user_data);
@@ -63,6 +65,19 @@ int main(int argc, char *argv[]) {
 
     // Wyświetlanie okna
     gtk_widget_show_all(window);
+
+    if (debug2)
+    {
+        if(instance_id==1)
+        {
+            serwer_click(nullptr, window); // Wywołanie funkcji serwer_click
+        }
+        else
+        {
+            klient_click(nullptr, window);
+        }
+    }
+
 
     // Wejście do głównej pętli GTK
     gtk_main();

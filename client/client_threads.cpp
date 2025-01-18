@@ -3,6 +3,7 @@ Slownik typow informacji:
 T - Lista polaczonych uzytkownikow (adres IP, port klienta do wysyłania, port klienta do odbioru, ID klienta)
 I - Informacja inicjalizacyjna (adres IP, port wychodzący, port odbiorczy klienta, ID klienta)
 R - Request (prośba o pozwolenie wejścia do sekcji krytycznej)
+A - Akceptacja prośby o wejście do sekcji krytycznej
 X - Przykładowy typ informacji (dodaj inne typy w miarę potrzeb)
 */
 
@@ -41,16 +42,6 @@ std::vector<CriticalSectionRequest> request_queue;
 std::mutex request_queue_mutex;
 std::vector<std::tuple<int, std::string, int, std::string, std::string>> logs; // Czas, Typ, Nadawca, Treść, Dodatkowe informacje
 std::mutex logs_mutex;
-
-void update_critical_status_label(const std::string& status) {
-    GtkWidget *critical_status_label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
-    gtk_label_set_text(GTK_LABEL(critical_status_label), status.c_str());
-}
-
-void update_lamport_clock_label() {
-    GtkWidget *lamport_label = GTK_WIDGET(gtk_builder_get_object(builder, "lamport"));
-    gtk_label_set_text(GTK_LABEL(lamport_label), std::to_string(lamport_clock).c_str());
-}
 
 void update_lamport_clock(int message_time)
 {
@@ -126,12 +117,6 @@ void send_request(GtkButton *button, gpointer user_data)
                 std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
             }
 
-            if (send(sockfd, message.c_str(), message.size(), 0) < 0) {
-                std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << ":" << send_port<< std::endl;
-            } else {
-                std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
-            }
-
             close(sockfd);
         }
     }
@@ -147,6 +132,14 @@ void send_request(GtkButton *button, gpointer user_data)
     update_logs();
 }
 
+void accept_request(GtkButton *button, gpointer user_data)
+{
+    update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
+
+    std::string message = "A;"; // Budowanie wiadomości
+
+
+}
 
 void receive_thread_function() {
     char buffer[1024];
@@ -276,15 +269,12 @@ void receive_thread_function() {
                                     std::string single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
                                     int sender_id = 0;
 
-                                    sockaddr_in client_addr;
-                                    socklen_t client_len;
-                                    //getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
                                     int sender_port = ntohs(client_addr.sin_port);
 
                                     {
                                         std::lock_guard<std::mutex> lock(global_client_list_mutex);
                                         for (const auto& client : global_client_list) {
-                                            if (std::get<2>(client) == sender_port) {
+                                            if (std::get<1>(client) == sender_port) {
                                                 sender_id = std::get<3>(client);
                                                 break;
                                             }
@@ -299,6 +289,17 @@ void receive_thread_function() {
                                         logs.emplace_back(lamport_clock, "R", sender_id, message, "");
                                     }
                                     update_logs();
+
+
+                                    {
+                                        std::lock_guard<std::mutex> lock(request_queue_mutex);
+                                        request_queue.push_back({std::stoi(single_field), sender_id});
+                                    }
+                                    // Aktualizuj statusy procesów
+                                    update_process_statuses();
+
+                                    // Zaktualizuj widok użytkowników w GtkTreeView
+                                    update_other_processes_view();
 
                                     std::cout << "Odebrano pole: " << single_field << std::endl;
                                 } else {

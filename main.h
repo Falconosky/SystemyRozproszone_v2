@@ -7,5 +7,6 @@
 
 extern "C" void on_window_destroy();
 extern int instance_id;
+extern bool debug2;
 
 #endif //MAIN_H

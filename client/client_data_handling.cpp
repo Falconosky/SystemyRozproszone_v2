@@ -35,6 +35,27 @@ void update_process_statuses() {
         std::cout << "[DEBUG] Updating process statuses." << std::endl;
     std::lock_guard<std::mutex> lock(global_client_list_mutex);
 
+    int min_timestamp = INT_MAX;
+    int next_process_id = -1;
+
+    {
+        std::lock_guard<std::mutex> queue_lock(request_queue_mutex);
+        for (const auto& request : request_queue) {
+            if (request.timestamp < min_timestamp) {
+                min_timestamp = request.timestamp;
+                next_process_id = request.process_id;
+            }
+        }
+    }
+
+    if (next_process_id != -1) {
+        GtkWidget *next_process_label = GTK_WIDGET(gtk_builder_get_object(builder, "next_process"));
+        std::string label_text = "P" + std::to_string(next_process_id);
+        gtk_label_set_text(GTK_LABEL(next_process_label), label_text.c_str());
+        if (debug)
+            std::cout << "[DEBUG] Next process set to: " << label_text << std::endl;
+    }
+
     for (auto& client : global_client_list) {
         int client_id = std::get<3>(client);
         std::string message = "Nieznany"; // Domyślny komunikat
@@ -47,11 +68,7 @@ void update_process_statuses() {
             });
 
             if (it != request_queue.end()) {
-                if (it->timestamp < lamport_clock) {
-                    message = "Zgoda";
-                } else {
-                    message = "Prośba";
-                }
+                message = "Prośba";
                 timestamp = it->timestamp;
                 if (debug)
                     std::cout << "[DEBUG] Process ID " << client_id << ": Status updated to " << message << ", Timestamp: " << timestamp << std::endl;
@@ -64,6 +81,16 @@ void update_process_statuses() {
         std::get<4>(client) = message;
         std::get<5>(client) = timestamp;
     }
+}
+
+void update_critical_status_label(const std::string& status) {
+    GtkWidget *critical_status_label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
+    gtk_label_set_text(GTK_LABEL(critical_status_label), status.c_str());
+}
+
+void update_lamport_clock_label() {
+    GtkWidget *lamport_label = GTK_WIDGET(gtk_builder_get_object(builder, "lamport"));
+    gtk_label_set_text(GTK_LABEL(lamport_label), std::to_string(lamport_clock).c_str());
 }
 
 void setup_treeview_columns(GtkTreeView *tree_view) {
@@ -96,7 +123,7 @@ void setup_treeview_columns(GtkTreeView *tree_view) {
     gtk_tree_view_append_column(tree_view, column);
 
     renderer = gtk_cell_renderer_text_new();
-    column = gtk_tree_view_column_new_with_attributes("Czas otrzymania komunikatu", renderer, "text", 5, NULL);
+    column = gtk_tree_view_column_new_with_attributes("Znacznik czasu otrzymany w wiadomości", renderer, "text", 5, NULL);
     gtk_tree_view_append_column(tree_view, column);
     if (debug)
         std::cout << "[DEBUG] Treeview columns set up successfully." << std::endl;

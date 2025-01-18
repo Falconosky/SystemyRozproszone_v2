@@ -252,6 +252,8 @@ void open_client_window() {
     g_signal_connect(connect_button, "clicked", G_CALLBACK(random_port1_clicked), builder);
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_section"));
     g_signal_connect(connect_button, "clicked", G_CALLBACK(send_request), builder);
+    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+    g_signal_connect(connect_button, "clicked", G_CALLBACK(accept_request), builder);
 
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "auto_accept"));
     g_signal_connect(connect_button, "toggled", G_CALLBACK(auto_accept_toggled), builder);

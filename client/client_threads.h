@@ -23,6 +23,7 @@ extern std::mutex logs_mutex;
 int initialize_connection(const std::string& ip_address, int port, int send_port);
 void receive_thread_function();
 void send_thread_function(int sockfd);
+void accept_request(GtkButton *button, gpointer user_data);
 extern void send_request(GtkButton *button, gpointer user_data);
 
 #endif // CLIENT_THREADS_H
