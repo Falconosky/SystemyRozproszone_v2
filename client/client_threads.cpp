@@ -65,54 +65,90 @@ void update_lamport_clock(int message_time)
 
 void send_request(GtkButton *button, gpointer user_data)
 {
-    // update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
-    //
-    // std::string message = "R" + std::to_string(lamport_clock) + ";"; // Budowanie wiadomości
-    //
-    // {
-    //     std::lock_guard<std::mutex> lock(global_client_list_mutex);
-    //     for (const auto& client : global_client_list) {
-    //         int send_port = std::get<1>(client);
-    //         const std::string& ip = std::get<0>(client);
-    //
-    //         int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    //         if (sockfd < 0) {
-    //             std::cerr << "Nie można utworzyć gniazda dla klienta: " << ip << "." << std::endl;
-    //             continue;
-    //         }
-    //
-    //         sockaddr_in client_addr;
-    //         std::memset(&client_addr, 0, sizeof(client_addr));
-    //         client_addr.sin_family = AF_INET;
-    //         client_addr.sin_port = htons(send_port);
-    //         if (inet_pton(AF_INET, ip.c_str(), &client_addr.sin_addr) <= 0) {
-    //             std::cerr << "Nieprawidłowy adres IP klienta: " << ip << "." << std::endl;
-    //             close(sockfd);
-    //             continue;
-    //         }
-    //
-    //         if (connect(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
-    //             std::cerr << "Nie udało się połączyć z klientem: " << ip << ":" << send_port << "." << std::endl;
-    //             close(sockfd);
-    //             continue;
-    //         }
-    //
-    //         if (send(sockfd, message.c_str(), message.size(), 0) < 0) {
-    //             std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
-    //         } else {
-    //             std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
-    //         }
-    //
-    //         close(sockfd);
-    //     }
-    // }
-    //
-    // {
-    //     std::lock_guard<std::mutex> lock(logs_mutex);
-    //     // TODO 1 zmienic na id procesu
-    //     logs.emplace_back(lamport_clock, "R", 1, message, "Wysłano żądanie do wszystkich klientów");
-    // }
-    // update_logs();
+    update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
+
+    std::string message = "R" + std::to_string(lamport_clock-1) + ";"; // Budowanie wiadomości
+
+    {
+        std::lock_guard<std::mutex> lock(global_client_list_mutex);
+        for (const auto& client : global_client_list) {
+            int send_port = std::get<2>(client);
+            const std::string& ip = std::get<0>(client);
+
+            int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+            if (sockfd < 0) {
+                std::cerr << "Nie można utworzyć gniazda." << std::endl;
+                continue;
+            }
+
+            // Ustawienie opcji SO_REUSEADDR
+            int opt = 1;
+            if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+                std::cerr << "Nie udało się ustawić opcji SO_REUSEADDR." << std::endl;
+                close(sockfd);
+                continue;
+            }
+            if (sockfd < 0) {
+                std::cerr << "Nie można utworzyć gniazda." << std::endl;
+                continue;
+            }
+
+            // Ustaw port własny jako źródłowy
+            GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+            const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
+            int own_port = atoi(own_port_text);
+
+            sockaddr_in own_addr;
+            memset(&own_addr, 0, sizeof(own_addr));
+            own_addr.sin_family = AF_INET;
+            own_addr.sin_addr.s_addr = INADDR_ANY;
+            own_addr.sin_port = htons(own_port);
+
+            if (bind(sockfd, (struct sockaddr*)&own_addr, sizeof(own_addr)) < 0) {
+                std::cerr << "Nie udało się związać gniazda z portem własnym " << own_port << "." << std::endl;
+                close(sockfd);
+                continue;
+            }
+            if (sockfd < 0) {
+                std::cerr << "Nie można utworzyć gniazda dla klienta: " << ip << "." << std::endl;
+                continue;
+            }
+
+            sockaddr_in client_addr;
+            std::memset(&client_addr, 0, sizeof(client_addr));
+            client_addr.sin_family = AF_INET;
+            client_addr.sin_port = htons(send_port);
+            if (inet_pton(AF_INET, ip.c_str(), &client_addr.sin_addr) <= 0) {
+                std::cerr << "Nieprawidłowy adres IP klienta: " << ip << "." << std::endl;
+                close(sockfd);
+                continue;
+            }
+
+            if (connect(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
+                std::cerr << "Nie udało się połączyć z klientem: " << ip << ":" << send_port << "." << std::endl;
+                close(sockfd);
+                continue;
+            }
+
+            if (send(sockfd, message.c_str(), message.size(), 0) < 0) {
+                std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+            } else {
+                std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
+            }
+
+            close(sockfd);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(logs_mutex);
+
+        GtkWidget *entry_process_id = GTK_WIDGET(gtk_builder_get_object(builder, "process_id"));
+        const gchar *process_id_text = gtk_entry_get_text(GTK_ENTRY(entry_process_id));
+        int process_id = atoi(process_id_text);
+        logs.emplace_back(lamport_clock, "R", process_id, message, "Wysłano żądanie do wszystkich klientów");
+    }
+    update_logs();
 }
 
 
@@ -164,6 +200,7 @@ void receive_thread_function() {
         if (bytes_received > 0) {
             buffer[bytes_received] = '\0';
             std::string message(buffer);
+            std::cout<<message<<std::endl;
 
             // Weryfikacja typu informacji
             if (message.empty()) {
@@ -181,6 +218,7 @@ void receive_thread_function() {
 
                     GtkWidget *entry_send_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
                     GtkWidget *entry_rec_port = GTK_WIDGET(gtk_builder_get_object(builder, "rec_port"));
+                    GtkWidget *entry_process_id = GTK_WIDGET(gtk_builder_get_object(builder, "process_id"));
 
                     const gchar *self_send_port_text = gtk_entry_get_text(GTK_ENTRY(entry_send_port));
                     const gchar *self_rec_port_text = gtk_entry_get_text(GTK_ENTRY(entry_rec_port));
@@ -205,10 +243,10 @@ void receive_thread_function() {
                             int client_id = std::stoi(client_info.substr(third_separator + 1));
 
                             if (send_port == self_send_port && rec_port == self_rec_port) {
+                                gtk_entry_set_text(GTK_ENTRY(entry_process_id), std::to_string(client_id).c_str());
                                 start = (end == std::string::npos) ? end : end + 1;
                                 continue;
                             }
-
                             client_list.emplace_back(ip, send_port, rec_port, client_id, "Nieznany", 0);
                         }
 
@@ -239,12 +277,12 @@ void receive_thread_function() {
                     update_other_processes_view();
 
                     // Wyświetl listę klientów w konsoli
-                    std::cout << "Lista połączonych klientów:" << std::endl;
-                    for (const auto& client : client_list) {
-                        std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
-                                  << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client)
-                                    << ", Komunikat: " << std::get<4>(client) << ", Timestamp: " << std::get<5>(client) << std::endl;
-                    }
+                    // std::cout << "Lista połączonych klientów:" << std::endl;
+                    // for (const auto& client : client_list) {
+                    //     std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
+                    //               << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client)
+                    //                 << ", Komunikat: " << std::get<4>(client) << ", Timestamp: " << std::get<5>(client) << std::endl;
+                    // }
                     break;
                 }
 
@@ -271,8 +309,11 @@ void receive_thread_function() {
                                                 sender_id = std::get<3>(client);
                                                 break;
                                             }
+                                            std::cout<<"sender port:"<<sender_port<<" std::get<1>(client)"<<std::get<1>(client)<<" std::get<3>(client)"<<std::get<3>(client)<<std::endl;
                                         }
                                     }
+
+                                    update_lamport_clock(std::stoi(single_field));
 
                                     {
                                         std::lock_guard<std::mutex> lock(logs_mutex);

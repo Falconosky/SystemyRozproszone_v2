@@ -628,7 +628,6 @@
                     <property name="name">process_id</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
-                    <property name="editable">False</property>
                     <property name="max-length">2</property>
                     <property name="text" translatable="yes">10</property>
                     <property name="input-purpose">digits</property>
@@ -687,7 +686,6 @@
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
-                        <property name="active">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>

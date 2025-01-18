@@ -28,7 +28,11 @@ extern std::mutex request_queue_mutex;
 std::map<int, std::string> process_states;
 std::mutex process_states_mutex;
 
+bool debug = false;
+
 void update_process_statuses() {
+    if (debug)
+        std::cout << "[DEBUG] Updating process statuses." << std::endl;
     std::lock_guard<std::mutex> lock(global_client_list_mutex);
 
     for (auto& client : global_client_list) {
@@ -49,6 +53,11 @@ void update_process_statuses() {
                     message = "Prośba";
                 }
                 timestamp = it->timestamp;
+                if (debug)
+                    std::cout << "[DEBUG] Process ID " << client_id << ": Status updated to " << message << ", Timestamp: " << timestamp << std::endl;
+            } else {
+                if (debug)
+                    std::cout << "[DEBUG] Process ID " << client_id << ": No matching request in queue." << std::endl;
             }
         }
 
@@ -58,6 +67,8 @@ void update_process_statuses() {
 }
 
 void setup_treeview_columns(GtkTreeView *tree_view) {
+    if (debug)
+        std::cout << "[DEBUG] Setting up treeview columns." << std::endl;
     // Remove existing columns
     while (GtkTreeViewColumn *column = gtk_tree_view_get_column(tree_view, 0)) {
         gtk_tree_view_remove_column(tree_view, column);
@@ -87,9 +98,13 @@ void setup_treeview_columns(GtkTreeView *tree_view) {
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new_with_attributes("Czas otrzymania komunikatu", renderer, "text", 5, NULL);
     gtk_tree_view_append_column(tree_view, column);
+    if (debug)
+        std::cout << "[DEBUG] Treeview columns set up successfully." << std::endl;
 }
 
 void setup_treeview_columns_logs(GtkTreeView *tree_view) {
+    if (debug)
+        std::cout << "[DEBUG] Setting up treeview columns for logs." << std::endl;
     // Remove existing columns
     while (GtkTreeViewColumn *column = gtk_tree_view_get_column(tree_view, 0)) {
         gtk_tree_view_remove_column(tree_view, column);
@@ -115,9 +130,13 @@ void setup_treeview_columns_logs(GtkTreeView *tree_view) {
     renderer = gtk_cell_renderer_text_new();
     column = gtk_tree_view_column_new_with_attributes("Dodatkowe informacje", renderer, "text", 4, NULL);
     gtk_tree_view_append_column(tree_view, column);
+    if (debug)
+        std::cout << "[DEBUG] Treeview columns for logs set up successfully." << std::endl;
 }
 
 void update_other_processes_view() {
+    if (debug)
+        std::cout << "[DEBUG] Updating other processes view." << std::endl;
     GtkWidget *tree_view = GTK_WIDGET(gtk_builder_get_object(builder, "other_processes"));
     GtkListStore *list_store = gtk_list_store_new(6, G_TYPE_STRING, G_TYPE_INT, G_TYPE_INT, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT);
 
@@ -138,11 +157,15 @@ void update_other_processes_view() {
 
     gtk_tree_view_set_model(GTK_TREE_VIEW(tree_view), GTK_TREE_MODEL(list_store));
     g_object_unref(list_store);
+    if (debug)
+        std::cout << "[DEBUG] Other processes view updated successfully." << std::endl;
 }
 
 void update_logs()
 {
     auto update_function = [] (gpointer data) -> gboolean {
+        if (debug)
+            std::cout << "[DEBUG] Entering logs update function." << std::endl;
         GtkWidget *tree_view = GTK_WIDGET(gtk_builder_get_object(builder, "logs"));
         GtkListStore *list_store = gtk_list_store_new(5, G_TYPE_INT, G_TYPE_STRING, G_TYPE_INT, G_TYPE_STRING, G_TYPE_STRING);
 
@@ -163,8 +186,13 @@ void update_logs()
         gtk_tree_view_set_model(GTK_TREE_VIEW(tree_view), GTK_TREE_MODEL(list_store));
         g_object_unref(list_store);
 
+        if (debug)
+            std::cout << "[DEBUG] Logs view updated successfully." << std::endl;
         return FALSE; // Usuwamy funkcję z pętli GTK po jej wykonaniu
     };
 
     g_idle_add(update_function, nullptr); // Dodajemy operację do głównego wątku GTK
+
+    if (debug)
+        std::cout << "[DEBUG] Queued logs update in GTK main thread." << std::endl;
 }

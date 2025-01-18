@@ -65,11 +65,11 @@ void on_connect_button_clicked(GtkButton *button, gpointer user_data) {
 
     // Uruchom wątki
     std::thread receive_thread(receive_thread_function);
-    std::thread send_thread(send_thread_function, sockfd);
+    //std::thread send_thread(send_thread_function, sockfd);
 
     // Odłącz wątki, aby działały niezależnie
     receive_thread.detach();
-    send_thread.detach();
+    //send_thread.detach();
 }
 
 void insert_free_port(string objectName)
