@@ -75,25 +75,12 @@ void send_request(GtkButton *button, gpointer user_data)
             int send_port = std::get<2>(client);
             const std::string& ip = std::get<0>(client);
 
-            int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+            int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
             if (sockfd < 0) {
                 std::cerr << "Nie można utworzyć gniazda." << std::endl;
                 continue;
             }
 
-            // Ustawienie opcji SO_REUSEADDR
-            int opt = 1;
-            if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-                std::cerr << "Nie udało się ustawić opcji SO_REUSEADDR." << std::endl;
-                close(sockfd);
-                continue;
-            }
-            if (sockfd < 0) {
-                std::cerr << "Nie można utworzyć gniazda." << std::endl;
-                continue;
-            }
-
-            // Ustaw port własny jako źródłowy
             GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
             const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
             int own_port = atoi(own_port_text);
@@ -105,12 +92,21 @@ void send_request(GtkButton *button, gpointer user_data)
             own_addr.sin_port = htons(own_port);
 
             if (bind(sockfd, (struct sockaddr*)&own_addr, sizeof(own_addr)) < 0) {
-                std::cerr << "Nie udało się związać gniazda z portem własnym " << own_port << "." << std::endl;
+                int err = errno;
+                std::cerr << "Nie udało się związać gniazda z portem własnym " << own_port << ". Kod błędu: " << err << " (" << strerror(err) << ")." << std::endl;
                 close(sockfd);
                 continue;
             }
             if (sockfd < 0) {
-                std::cerr << "Nie można utworzyć gniazda dla klienta: " << ip << "." << std::endl;
+                std::cerr << "Nie można utworzyć gniazda." << std::endl;
+                continue;
+            }
+
+            // Ustawienie opcji SO_REUSEADDR
+            int opt = 1;
+            if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+                std::cerr << "Nie udało się ustawić opcji SO_REUSEADDR." << std::endl;
+                close(sockfd);
                 continue;
             }
 
@@ -124,14 +120,14 @@ void send_request(GtkButton *button, gpointer user_data)
                 continue;
             }
 
-            if (connect(sockfd, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
-                std::cerr << "Nie udało się połączyć z klientem: " << ip << ":" << send_port << "." << std::endl;
-                close(sockfd);
-                continue;
+            if (sendto(sockfd, message.c_str(), message.size(), 0, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
+                std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+            } else {
+                std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
             }
 
             if (send(sockfd, message.c_str(), message.size(), 0) < 0) {
-                std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+                std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << ":" << send_port<< std::endl;
             } else {
                 std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
             }
@@ -163,7 +159,7 @@ void receive_thread_function() {
         return;
     }
 
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         std::cerr << "Nie można utworzyć gniazda dla odbioru." << std::endl;
         return;
@@ -181,33 +177,16 @@ void receive_thread_function() {
         return;
     }
 
-    if (listen(sockfd, 5) < 0) {
-        std::cerr << "Błąd podczas uruchamiania nasłuchiwania." << std::endl;
-        close(sockfd);
-        return;
-    }
+    sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
 
     while (running) {
-        sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(sockfd, (struct sockaddr*)&client_addr, &client_len);
-        if (client_fd < 0) {
-            std::cerr << "Błąd podczas akceptowania połączenia." << std::endl;
-            continue;
-        }
-
-        ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+        std::memset(buffer, 0, sizeof(buffer));
+        ssize_t bytes_received = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*)&client_addr, &client_len);
         if (bytes_received > 0) {
             buffer[bytes_received] = '\0';
             std::string message(buffer);
             std::cout<<message<<std::endl;
-
-            // Weryfikacja typu informacji
-            if (message.empty()) {
-                std::cerr << "Otrzymano pustą wiadomość." << std::endl;
-                close(client_fd);
-                continue;
-            }
 
             char message_type = message[0];
 
@@ -299,7 +278,7 @@ void receive_thread_function() {
 
                                     sockaddr_in client_addr;
                                     socklen_t client_len;
-                                    getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
+                                    //getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
                                     int sender_port = ntohs(client_addr.sin_port);
 
                                     {
@@ -341,7 +320,6 @@ void receive_thread_function() {
         } else {
             std::cerr << "Błąd podczas odbierania danych." << std::endl;
         }
-        close(client_fd);
     }
 
     close(sockfd);

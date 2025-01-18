@@ -7,9 +7,21 @@
 int initialize_connection(const std::string& ip_address, int port, int send_port) {
     try
     {
-        int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
         if (sockfd < 0) {
-            std::cerr << "Nie można utworzyć gniazda." << std::endl;
+            std::cerr << "Nie można utworzyć gniazda UDP." << std::endl;
+            return -1;
+        }
+
+        // Ustawienie opcji SO_REUSEADDR dla ponownego użycia portu
+        int opt = 1;
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+            std::cerr << "Nie udało się ustawić opcji SO_REUSEADDR." << std::endl;
+            close(sockfd);
+            return -1;
+        }
+        if (sockfd < 0) {
+            std::cerr << "Nie można utworzyć gniazda UDP." << std::endl;
             return -1;
         }
 
@@ -72,15 +84,9 @@ int initialize_connection(const std::string& ip_address, int port, int send_port
             return -1;
         }
 
-        if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-            std::cerr << "Połączenie nieudane." << std::endl;
-            close(sockfd);
-            return -1;
-        }
-
-        // Wysyłanie informacji inicjalizacyjnej do serwera
+        // Wysyłanie informacji inicjalizacyjnej do serwera za pomocą sendto dla UDP
         std::string init_message = "I:" + ip_address + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(process_id) + ";";
-        if (send(sockfd, init_message.c_str(), init_message.size(), 0) < 0) {
+        if (sendto(sockfd, init_message.c_str(), init_message.size(), 0, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
             std::cerr << "Błąd podczas wysyłania informacji inicjalizacyjnej do serwera." << std::endl;
             close(sockfd);
             return -1;
@@ -124,7 +130,6 @@ int initialize_connection(const std::string& ip_address, int port, int send_port
         } else {
             g_printerr("Nie znaleziono widgetu main_notebook\n");
         }
-
 
         close(sockfd); // Zamykanie gniazda wysyłającego, port jest gotowy do dalszego użycia
         std::cout << "[INFO] Port wysyłający " << send_port << " jest teraz dostępny." << std::endl;

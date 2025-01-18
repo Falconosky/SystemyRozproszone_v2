@@ -61,14 +61,13 @@ void send_connected_clients_list(int client_fd) {
     for (const auto &client : connected_clients) {
         message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ":" + std::to_string(std::get<3>(client)) + ";";
     }
-    send(client_fd, message.c_str(), message.size(), 0);
+    //sendto(client_fd, message.c_str(), message.size(), 0, (struct sockaddr *)&client_addr, client_len);
 
     // Debugowanie: wypisz wysłaną wiadomość
     std::cout << "Wysłano wiadomość do klienta: " << message << std::endl;
 }
 
-// Funkcja do wysyłania listy klientów do wszystkich podłączonych klientów
-void broadcast_clients_list() {
+void broadcast_clients_list(int server_fd, const sockaddr_in &server_addr) {
     GtkEntry *reconnect_entry = GTK_ENTRY(gtk_builder_get_object(builder, "reconnect_attempts"));
     int max_attempts = get_reconnect_attempts_from_entry(reconnect_entry);
     std::lock_guard<std::mutex> lock(clients_mutex);
@@ -77,52 +76,18 @@ void broadcast_clients_list() {
         message += std::get<0>(client) + ":" + std::to_string(std::get<1>(client)) + ":" + std::to_string(std::get<2>(client)) + ":" + std::to_string(std::get<3>(client)) + ";";
     }
 
-    for (auto it = connected_clients.begin(); it != connected_clients.end();) {
-        int client_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (client_fd < 0) {
-            std::cerr << "Błąd otwarcia gniazda dla klienta." << std::endl;
-            ++it;
-            continue;
-        }
-
+    for (const auto &client : connected_clients) {
         sockaddr_in client_addr;
         memset(&client_addr, 0, sizeof(client_addr));
         client_addr.sin_family = AF_INET;
-        client_addr.sin_port = htons(std::get<2>(*it)); // Port odbiorczy
-        inet_pton(AF_INET, std::get<0>(*it).c_str(), &client_addr.sin_addr);
+        client_addr.sin_port = htons(std::get<2>(client)); // Port odbiorczy klienta
+        inet_pton(AF_INET, std::get<0>(client).c_str(), &client_addr.sin_addr);
 
-        if (connect(client_fd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-            std::cerr << "Nie udało się połączyć z klientem " << std::get<0>(*it) << ":" << std::get<2>(*it) << std::endl;
-            close(client_fd);
-
-            // Zwiększ licznik nieudanych prób
-            std::get<4>(*it)++;
-
-            // Usuń klienta, jeśli liczba prób przekroczy limit
-            if (std::get<4>(*it) > max_attempts) {
-                std::cout << "Usuwanie klienta: " << std::get<0>(*it) << " po " << std::get<4>(*it) << " nieudanych próbach." << std::endl;
-                it = connected_clients.erase(it);
-
-                continue;
-            }
-            ++it;
-            continue;
+        if (sendto(server_fd, message.c_str(), message.size(), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+            std::cerr << "Nie udało się wysłać wiadomości do klienta: " << std::get<0>(client) << ":" << std::get<2>(client) << std::endl;
+        } else {
+            std::cout << "Wysłano wiadomość do klienta: " << std::get<0>(client) << ":" << std::get<2>(client) << " -> " << message << std::endl;
         }
-
-        if (send(client_fd, message.c_str(), message.size(), 0) < 0) {
-            std::cerr << "Błąd wysyłania wiadomości do klienta " << std::get<0>(*it) << std::endl;
-            close(client_fd);
-            ++it;
-            continue;
-        }
-        close(client_fd);
-
-        // Debugowanie: wypisz wysłaną wiadomość
-        // Zresetuj licznik nieudanych prób po udanym połączeniu
-        std::get<4>(*it) = 0;
-
-        std::cout << "Wysłano wiadomość do klienta " << std::get<0>(*it) << ":" << std::get<2>(*it) << " -> " << message << std::endl;
-        ++it;
     }
 }
 
@@ -167,7 +132,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     }
 
     // Tworzenie gniazda serwera TCP
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int server_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (server_fd == -1) {
         g_printerr("Nie udało się utworzyć gniazda.\n");
         return;
@@ -190,12 +155,6 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
         return;
     }
 
-    if (listen(server_fd, 5) < 0) {
-        g_printerr("Błąd podczas uruchamiania nasłuchiwania.\n");
-        close(server_fd);
-        return;
-    }
-
     GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "server_address"));
     std::string label_text = "Serwer włączony: " + std::string(ip_address) + ":" + std::to_string(port);
     gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
@@ -205,65 +164,61 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     gtk_widget_hide(start_button);
 
     std::thread connection_thread([server_fd, clients_treeview]() {
+        char buffer[1024];
+        sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
         while (true) {
-            sockaddr_in client_addr;
-            socklen_t client_len = sizeof(client_addr);
-            int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
-
-            if (client_fd < 0) {
-                std::cerr << "Błąd podczas akceptowania połączenia." << std::endl;
+            std::memset(buffer, 0, sizeof(buffer));
+            ssize_t bytes_received = recvfrom(server_fd, buffer, sizeof(buffer) - 1, 0,
+                                              (struct sockaddr *)&client_addr, &client_len);
+            if (bytes_received < 0) {
+                std::cerr << "Błąd podczas odbierania danych." << std::endl;
                 continue;
             }
 
+            buffer[bytes_received] = '\0';
+            std::string message(buffer);
+
+            std::cout << "Otrzymano wiadomość od klienta: " << message<<":"<<ntohs(client_addr.sin_port) << std::endl;
+
             char client_ip[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-            int client_port = ntohs(client_addr.sin_port);
 
-            // Odbieranie informacji od klienta i debugowanie
-            char buffer[1024];
-            ssize_t bytes_received = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-            if (bytes_received > 0) {
-                buffer[bytes_received] = '\0';
-                std::cout << "Otrzymano wiadomość od klienta: " << buffer << std::endl;
+            // Parsowanie wiadomości inicjalizacyjnej lub żądania ID
+            if (buffer[0] == 'I') {
+                std::string message(buffer);
+                size_t first_colon = message.find(':');
+                size_t second_colon = message.find(':', first_colon + 1);
+                size_t third_colon = message.find(':', second_colon + 1);
+                size_t fourth_colon = message.find(':', third_colon + 1);
+                size_t semicolon = message.find(';', fourth_colon + 1);
 
-                // Parsowanie wiadomości inicjalizacyjnej lub żądania ID
-                if (buffer[0] == 'I' || buffer[0] == 'D') {
-                    std::string message(buffer);
-                    size_t first_colon = message.find(':');
-                    size_t second_colon = message.find(':', first_colon + 1);
-                    size_t third_colon = message.find(':', second_colon + 1);
-                    size_t fourth_colon = message.find(':', third_colon + 1);
-                    size_t semicolon = message.find(';', fourth_colon + 1);
+                if (first_colon != std::string::npos && second_colon != std::string::npos &&
+                    third_colon != std::string::npos && fourth_colon != std::string::npos && semicolon != std::string::npos) {
+                    std::string ip = message.substr(first_colon + 1, second_colon - first_colon - 1);
+                    int send_port = std::stoi(message.substr(second_colon + 1, third_colon - second_colon - 1));
+                    int rec_port = std::stoi(message.substr(third_colon + 1, fourth_colon - third_colon - 1));
+                    int client_id = std::stoi(message.substr(fourth_colon + 1, semicolon - fourth_colon - 1));
 
-                    if (first_colon != std::string::npos && second_colon != std::string::npos &&
-                        third_colon != std::string::npos && fourth_colon != std::string::npos && semicolon != std::string::npos) {
-                        std::string ip = message.substr(first_colon + 1, second_colon - first_colon - 1);
-                        int send_port = std::stoi(message.substr(second_colon + 1, third_colon - second_colon - 1));
-                        int rec_port = std::stoi(message.substr(third_colon + 1, fourth_colon - third_colon - 1));
-                        int client_id = std::stoi(message.substr(fourth_colon + 1, semicolon - fourth_colon - 1));
-
-                        if (client_id == 0) {
-                            client_id = get_next_available_id();
-                            if (client_id == -1) {
-                                std::cerr << "Brak dostępnych ID dla klienta." << std::endl;
-                                close(client_fd);
-                                continue;
-                            }
-                            std::string response = "D:" + ip + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(client_id) + ";";
-                            send(client_fd, response.c_str(), response.size(), 0);
-                            std::cout << "Wysłano nowe ID do klienta: " << client_id << std::endl;
+                    if (client_id == 0) {
+                        client_id = get_next_available_id();
+                        if (client_id == -1) {
+                            std::cerr << "Brak dostępnych ID dla klienta." << std::endl;
+                            continue;
+                        }
+                        std::string response = "D:" + ip + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(client_id) + ";";
+                        //send(client_fd, response.c_str(), response.size(), 0);
+                        std::cout << "Wysłano nowe ID do klienta: " << client_id << std::endl;
+                    }
+                    if (buffer[0] == 'I') {
+                        {
+                            std::lock_guard<std::mutex> lock(clients_mutex);
+                            connected_clients.emplace_back(ip, send_port, rec_port, client_id,0);
                         }
 
-                        if (buffer[0] == 'I') {
-                            {
-                                std::lock_guard<std::mutex> lock(clients_mutex);
-                                connected_clients.emplace_back(ip, send_port, rec_port, client_id,0);
-                            }
-
-                            std::cout << "Zaktualizowano listę klientów: " << ip << ", Send Port: " << send_port
-                                      << ", Rec Port: " << rec_port << ", ID: " << client_id << std::endl;
-                            update_clients_list(clients_treeview);
-                        }
+                        std::cout << "Zaktualizowano listę klientów: " << ip << ", Send Port: " << send_port
+                                  << ", Rec Port: " << rec_port << ", ID: " << client_id << std::endl;
+                        update_clients_list(clients_treeview);
                     }
                 }
             } else if (bytes_received == 0) {
@@ -271,12 +226,10 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
             } else {
                 std::cerr << "Błąd podczas odbierania danych od klienta." << std::endl;
             }
-
-            close(client_fd);
         }
     });
 
-    std::thread refresh_thread([refresh_entry, clients_treeview]() {
+    std::thread refresh_thread([server_fd, server_addr, refresh_entry, clients_treeview]() {
         while (true) {
             int refresh_interval = get_refresh_interval_from_entry(refresh_entry);
             {
@@ -287,7 +240,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
                               << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client) << std::endl;
                 }
             }
-            broadcast_clients_list();
+            broadcast_clients_list(server_fd, server_addr);
             std::this_thread::sleep_for(std::chrono::seconds(refresh_interval));
         }
     });
