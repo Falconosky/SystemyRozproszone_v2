@@ -68,8 +68,7 @@ void send_connected_clients_list(int client_fd) {
 }
 
 void broadcast_clients_list(int server_fd, const sockaddr_in &server_addr) {
-    GtkEntry *reconnect_entry = GTK_ENTRY(gtk_builder_get_object(builder, "reconnect_attempts"));
-    int max_attempts = get_reconnect_attempts_from_entry(reconnect_entry);
+    int max_attempts = 5;
     std::lock_guard<std::mutex> lock(clients_mutex);
     std::string message = "T";
     for (const auto &client : connected_clients) {
@@ -115,7 +114,6 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     GtkEntry *ip_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_ip"));
     GtkEntry *port_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_port"));
     GtkTreeView *clients_treeview = GTK_TREE_VIEW(gtk_builder_get_object(builder, "clients_address"));
-    GtkEntry *refresh_entry = GTK_ENTRY(gtk_builder_get_object(builder, "refresh_interval"));
 
     const gchar *ip_address = gtk_entry_get_text(GTK_ENTRY(ip_entry));
     const gchar *port_text = gtk_entry_get_text(GTK_ENTRY(port_entry));
@@ -163,7 +161,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     GtkWidget *start_button = GTK_WIDGET(button);
     gtk_widget_hide(start_button);
 
-    std::thread connection_thread([server_fd, clients_treeview]() {
+    std::thread connection_thread([server_fd, server_addr, clients_treeview]() {
         char buffer[1024];
         sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -221,6 +219,8 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
                         update_clients_list(clients_treeview);
                     }
                 }
+                sleep(1);
+                broadcast_clients_list(server_fd, server_addr);
             } else if (bytes_received == 0) {
                 std::cout << "Klient zakończył połączenie." << std::endl;
             } else {
@@ -228,25 +228,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
             }
         }
     });
-
-    std::thread refresh_thread([server_fd, server_addr, refresh_entry, clients_treeview]() {
-        while (true) {
-            int refresh_interval = get_refresh_interval_from_entry(refresh_entry);
-            {
-                std::lock_guard<std::mutex> lock(clients_mutex);
-                std::cout << "Odświeżanie listy klientów:" << std::endl;
-                for (const auto &client : connected_clients) {
-                    std::cout << "Adres: " << std::get<0>(client) << ", Port wysyłania: " << std::get<1>(client)
-                              << ", Port odbioru: " << std::get<2>(client) << ", ID: " << std::get<3>(client) << std::endl;
-                }
-            }
-            broadcast_clients_list(server_fd, server_addr);
-            std::this_thread::sleep_for(std::chrono::seconds(refresh_interval));
-        }
-    });
-
     connection_thread.detach();
-    refresh_thread.detach();
 }
 
 void open_connection_manager_window() {
@@ -281,8 +263,6 @@ void open_connection_manager_window() {
     column = gtk_tree_view_column_new_with_attributes("Client ID", renderer, "text", 3, NULL);
     gtk_tree_view_append_column(clients_treeview, column);
 
-    GtkWidget *connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "force_update"));
-    g_signal_connect(connect_button, "clicked", G_CALLBACK(broadcast_clients_list), builder);
 
     gtk_widget_show_all(new_window);
 }

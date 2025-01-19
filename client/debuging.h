@@ -10,5 +10,6 @@
 
 void debug_last_messages();
 void textdebug(std::string text);
+void textdebug2(std::string text);
 
 #endif //DEBUGING_H

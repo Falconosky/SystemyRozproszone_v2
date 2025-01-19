@@ -115,13 +115,10 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkToggleButton" id="auto_accept">
-                    <property name="label" translatable="yes">Automatyczne akceptuj żądania</property>
+                  <object class="GtkLabel" id="next_process1">
                     <property name="visible">True</property>
-                    <property name="can-focus">True</property>
-                    <property name="receives-default">True</property>
-                    <property name="margin-end">15</property>
-                    <property name="margin-top">5</property>
+                    <property name="can-focus">False</property>
+                    <property name="label" translatable="yes"> </property>
                   </object>
                   <packing>
                     <property name="expand">False</property>

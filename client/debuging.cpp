@@ -30,3 +30,11 @@ void textdebug(std::string text)
         std::cout<<"\t[DEBUG] - "<<text<<std::endl;
     }
 }
+
+void textdebug2(std::string text)
+{
+    if (szczegolowy_debug)
+    {
+        std::cout<<"\t\t[DEBUG] - "<<text<<std::endl;
+    }
+}

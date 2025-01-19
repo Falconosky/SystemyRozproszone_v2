@@ -254,10 +254,6 @@ void open_client_window() {
     connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_exit"));
     g_signal_connect(connect_button, "clicked", G_CALLBACK(critical_exit), builder);
 
-    connect_button = GTK_WIDGET(gtk_builder_get_object(builder, "auto_accept"));
-    g_signal_connect(connect_button, "toggled", G_CALLBACK(auto_accept_toggled), builder);
-
-
     // Pokaż nowe okno
     if (fullScreen)
         gtk_window_maximize(GTK_WINDOW(new_window));

@@ -40,6 +40,7 @@ std::vector<int> acceptance_list;
 std::mutex acceptance_list_mutex;
 int lamport_clock = 0;
 int critical_entrance_timestamp = 0;
+int oldest_request = 0;
 
 struct CriticalSectionRequest {
     int timestamp;
@@ -358,7 +359,23 @@ void accept_request(GtkButton *button, gpointer user_data)
                           << ", Timestamp: " << message_info.second << std::endl;
             }
         }
+
+        // Sprawdzenie znacznika czasu
+        GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+        if (critical_entrance_timestamp < oldest_request->timestamp && critical_entrance_timestamp!=0) {
+            gtk_widget_set_sensitive(accept_button, false);
+            std::cout << "[DEBUG] Własny znacznik czasu jest mniejszy. Przycisk zablokowany." << std::endl;
+        } else {
+            gtk_widget_set_sensitive(accept_button, true);
+            std::cout << "[DEBUG] Własny znacznik czasu jest większy. Przycisk odblokowany." << std::endl;
+        }
+        if (request_queue.empty())
+        {
+            gtk_widget_set_sensitive(accept_button, false);
+        }
+        textdebug2(std::to_string(request_queue.size()));
     }
+
     update_process_statuses();
     update_other_processes_view();
 }
@@ -585,6 +602,7 @@ void receive_thread_function() {
                             } else {
                                 // Jeśli nie istnieje, dodaj nowy wpis
                                 textdebug("dodawanie nowego wpisu");
+                                oldest_request = std::stoi(single_field);
                                 last_messages.emplace_back(sender_id, std::make_pair("Request", std::stoi(single_field)));
                             }
                         }
@@ -642,6 +660,8 @@ void receive_thread_function() {
                             std::lock_guard<std::mutex> lock2(global_client_list_mutex);
                             // Sprawdź, czy wszystkie akceptacje zostały zebrane
                             if (acceptance_list.size() == global_client_list.size()) {
+                                // Opróżnij listę akceptacji
+                                acceptance_list.clear();
                                 in_critical_section = true;
                                 std::cout << "[INFO] Wchodzimy do sekcji krytycznej." << std::endl;
 
@@ -713,7 +733,7 @@ void critical_exit(GtkButton *button, gpointer user_data) {
 
         {
             std::lock_guard<std::mutex> lock(request_queue_mutex);
-            if (!request_queue.empty())
+            if (!request_queue.empty() && (oldest_request<=critical_entrance_timestamp || critical_entrance_timestamp==0))
             {
                 GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
                 gtk_widget_set_sensitive(accept_button, true);
