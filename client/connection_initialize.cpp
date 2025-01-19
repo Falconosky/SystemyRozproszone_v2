@@ -4,6 +4,35 @@
 
 #include "connection_initialize.h"
 
+// Funkcja do pobierania lokalnego adresu IP innego niż 127.0.0.1
+std::string get_non_loopback_ip() {
+    struct ifaddrs *ifaddr, *ifa;
+    char addr_buffer[INET_ADDRSTRLEN];
+
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        return "127.0.0.1"; // W razie błędu zwróć domyślny adres
+    }
+
+    std::string local_ip = "127.0.0.1";
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_INET) {
+            continue; // Przetwarzaj tylko IPv4
+        }
+
+        void *addr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+        if (inet_ntop(AF_INET, addr, addr_buffer, INET_ADDRSTRLEN) != nullptr) {
+            if (std::string(addr_buffer) != "127.0.0.1") { // Pomijaj 127.0.0.1
+                local_ip = addr_buffer;
+                break; // Znaleziono odpowiedni adres, przerywamy pętlę
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return local_ip;
+}
+
 int initialize_connection(const std::string& ip_address, int port, int send_port) {
     try
     {
@@ -84,8 +113,9 @@ int initialize_connection(const std::string& ip_address, int port, int send_port
             return -1;
         }
 
+        std::string local_ip = get_non_loopback_ip();
         // Wysyłanie informacji inicjalizacyjnej do serwera za pomocą sendto dla UDP
-        std::string init_message = "I:" + ip_address + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(process_id) + ";";
+        std::string init_message = "I:" + local_ip + ":" + std::to_string(send_port) + ":" + std::to_string(rec_port) + ":" + std::to_string(process_id) + ";";
         if (sendto(sockfd, init_message.c_str(), init_message.size(), 0, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
             std::cerr << "Błąd podczas wysyłania informacji inicjalizacyjnej do serwera." << std::endl;
             close(sockfd);

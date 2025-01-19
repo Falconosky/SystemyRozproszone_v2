@@ -17,6 +17,9 @@
 #include <vector>
 #include "client_data_handling.h"
 #include "client_threads.h"
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 int initialize_connection(const std::string& ip_address, int port, int send_port);
 

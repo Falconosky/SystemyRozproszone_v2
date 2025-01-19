@@ -76,7 +76,6 @@
                   <object class="GtkEntry" id="address_ip">
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
-                    <property name="editable">False</property>
                     <property name="text" translatable="yes">127.0.0.1</property>
                   </object>
                   <packing>
