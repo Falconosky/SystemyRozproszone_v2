@@ -327,6 +327,10 @@ void accept_request(GtkButton *button, gpointer user_data)
             std::cout << "[DEBUG] Stan przed modyfikacją last_messages:" << std::endl;
             for (size_t index = 0; index < last_messages.size(); ++index) {
                 const auto& [process_id, message_info] = last_messages[index];
+                std::cout << "Index: " << index
+                          << ", Process ID: " << process_id
+                          << ", Message: " << message_info.first
+                          << ", Timestamp: " << message_info.second << std::endl;
             }
 
             // Znajdowanie wpisu `Request` dla `target_process_id`

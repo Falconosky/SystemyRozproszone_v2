@@ -17,7 +17,7 @@ void debug_last_messages() {
             std::cout << "Index: " << index
                       << ", Process ID: " << entry.first
                       << ", Message: " << entry.second.first
-                      << ", Timestamp: " << entry.second.second << std::endl<<std::endl;
+                      << ", Timestamp: " << entry.second.second <<std::endl;
             ++index;
         }
     }
