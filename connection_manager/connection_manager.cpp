@@ -16,6 +16,35 @@
 std::vector<std::tuple<std::string, int, int, int, int>> connected_clients; // IP, send_port, rec_port, client_id
 std::mutex clients_mutex;
 
+// Funkcja do pobierania lokalnego adresu IP innego niż 127.0.0.1
+std::string get_non_loopback_ip2() {
+    struct ifaddrs *ifaddr, *ifa;
+    char addr_buffer[INET_ADDRSTRLEN];
+
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        return "127.0.0.1"; // W razie błędu zwróć domyślny adres
+    }
+
+    std::string local_ip = "127.0.0.1";
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_INET) {
+            continue; // Przetwarzaj tylko IPv4
+        }
+
+        void *addr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+        if (inet_ntop(AF_INET, addr, addr_buffer, INET_ADDRSTRLEN) != nullptr) {
+            if (std::string(addr_buffer) != "127.0.0.1") { // Pomijaj 127.0.0.1
+                local_ip = addr_buffer;
+                break; // Znaleziono odpowiedni adres, przerywamy pętlę
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return local_ip;
+}
+
 int get_refresh_interval_from_entry(GtkEntry *refresh_entry) {
     const gchar *refresh_text = gtk_entry_get_text(refresh_entry);
     try {
@@ -110,13 +139,16 @@ int get_next_available_id() {
 
 // Funkcja obsługi sygnału kliknięcia przycisku "Start serwer"
 extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
+    std::string local_ip = get_non_loopback_ip2();
     GtkBuilder *builder = GTK_BUILDER(user_data);
     GtkEntry *ip_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_ip"));
     GtkEntry *port_entry = GTK_ENTRY(gtk_builder_get_object(builder, "address_port"));
     GtkTreeView *clients_treeview = GTK_TREE_VIEW(gtk_builder_get_object(builder, "clients_address"));
 
+    gtk_entry_set_text(GTK_ENTRY(ip_entry), local_ip.c_str());
     const gchar *ip_address = gtk_entry_get_text(GTK_ENTRY(ip_entry));
     const gchar *port_text = gtk_entry_get_text(GTK_ENTRY(port_entry));
+
 
     if (strlen(ip_address) == 0 || strlen(port_text) == 0) {
         g_printerr("Adres IP i port muszą być podane.\n");
@@ -154,7 +186,7 @@ extern "C" void start_server_clicked(GtkButton *button, gpointer user_data) {
     }
 
     GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "server_address"));
-    std::string label_text = "Serwer włączony: " + std::string(ip_address) + ":" + std::to_string(port);
+    std::string label_text = "Serwer włączony: " + std::string(local_ip) + ":" + std::to_string(port);
     gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
 
     // Ukryj przycisk "Start serwer"
