@@ -178,11 +178,10 @@ void send_request(GtkButton *button, gpointer user_data)
         }
     }
 
-    g_idle_add([](gpointer data) -> gboolean {
-        // Bezpieczna operacja na GTK
+    gdk_threads_add_idle([](void*) -> gboolean {
         update_process_statuses();
         update_other_processes_view();
-        return G_SOURCE_REMOVE;
+        return FALSE; // Wykonaj funkcję tylko raz
     }, nullptr);
 
     update_logs();
@@ -381,11 +380,10 @@ void accept_request(GtkButton *button, gpointer user_data)
         textdebug2(std::to_string(request_queue.size()));
     }
 
-    g_idle_add([](gpointer data) -> gboolean {
-        // Bezpieczna operacja na GTK
+    gdk_threads_add_idle([](void*) -> gboolean {
         update_process_statuses();
         update_other_processes_view();
-        return G_SOURCE_REMOVE;
+        return FALSE; // Wykonaj funkcję tylko raz
     }, nullptr);
 }
 
@@ -505,13 +503,13 @@ void receive_thread_function() {
                         global_client_list = client_list;
                     }
 
-                    g_idle_add([](gpointer data) -> gboolean {
-                        // Bezpieczna operacja na GTK
-                            textdebug("update_process_statuses");
+
+                    gdk_threads_add_idle([](void*) -> gboolean {
+                        textdebug("update_process_statuses");
                         update_process_statuses();
                         textdebug("update_other_processes_view");
                         update_other_processes_view();
-                        return G_SOURCE_REMOVE;
+                        return FALSE; // Wykonaj funkcję tylko raz
                     }, nullptr);
 
                     // Wyświetl listę klientów w konsoli
@@ -566,13 +564,12 @@ void receive_thread_function() {
                                         std::lock_guard<std::mutex> lock(request_queue_mutex);
                                         request_queue.push_back({std::stoi(single_field), sender_id});
                                     }
-                                    g_idle_add([](gpointer data) -> gboolean {
-                                        // Bezpieczna operacja na GTK
-                                            textdebug("update_process_statuses");
+                                    gdk_threads_add_idle([](void*) -> gboolean {
+                                        textdebug("update_process_statuses");
                                         update_process_statuses();
                                         textdebug("update_other_processes_view");
                                         update_other_processes_view();
-                                        return G_SOURCE_REMOVE;
+                                        return FALSE; // Wykonaj funkcję tylko raz
                                     }, nullptr);
 
                                     std::cout << "Odebrano pole: " << single_field << std::endl;
@@ -618,13 +615,12 @@ void receive_thread_function() {
                             }
                         }
 
-                        g_idle_add([](gpointer data) -> gboolean {
-                            // Bezpieczna operacja na GTK
-                                textdebug("update_process_statuses");
+                        gdk_threads_add_idle([](void*) -> gboolean {
+                            textdebug("update_process_statuses");
                             update_process_statuses();
                             textdebug("update_other_processes_view");
                             update_other_processes_view();
-                            return G_SOURCE_REMOVE;
+                            return FALSE; // Wykonaj funkcję tylko raz
                         }, nullptr);
 
                         break;
@@ -711,8 +707,13 @@ void receive_thread_function() {
 
                         }
 
-                        update_process_statuses();
-                        update_other_processes_view();
+                        gdk_threads_add_idle([](void*) -> gboolean {
+                            textdebug("update_process_statuses");
+                            update_process_statuses();
+                            textdebug("update_other_processes_view");
+                            update_other_processes_view();
+                            return FALSE; // Wykonaj funkcję tylko raz
+                        }, nullptr);
                         break;
                     }
 
