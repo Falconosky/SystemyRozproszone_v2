@@ -177,8 +177,13 @@ void send_request(GtkButton *button, gpointer user_data)
             }
         }
     }
-    update_process_statuses();
-    update_other_processes_view();
+
+    g_idle_add([](gpointer data) -> gboolean {
+        // Bezpieczna operacja na GTK
+        update_process_statuses();
+        update_other_processes_view();
+        return G_SOURCE_REMOVE;
+    }, nullptr);
 
     update_logs();
 }
@@ -376,8 +381,12 @@ void accept_request(GtkButton *button, gpointer user_data)
         textdebug2(std::to_string(request_queue.size()));
     }
 
-    update_process_statuses();
-    update_other_processes_view();
+    g_idle_add([](gpointer data) -> gboolean {
+        // Bezpieczna operacja na GTK
+        update_process_statuses();
+        update_other_processes_view();
+        return G_SOURCE_REMOVE;
+    }, nullptr);
 }
 
 
@@ -496,13 +505,14 @@ void receive_thread_function() {
                         global_client_list = client_list;
                     }
 
-                    // Aktualizuj statusy procesów
-                        textdebug("update_process_statuses");
-                    update_process_statuses();
-
-                    // Zaktualizuj widok użytkowników w GtkTreeView
+                    g_idle_add([](gpointer data) -> gboolean {
+                        // Bezpieczna operacja na GTK
+                            textdebug("update_process_statuses");
+                        update_process_statuses();
                         textdebug("update_other_processes_view");
-                    update_other_processes_view();
+                        update_other_processes_view();
+                        return G_SOURCE_REMOVE;
+                    }, nullptr);
 
                     // Wyświetl listę klientów w konsoli
                     // std::cout << "Lista połączonych klientów:" << std::endl;
@@ -556,13 +566,14 @@ void receive_thread_function() {
                                         std::lock_guard<std::mutex> lock(request_queue_mutex);
                                         request_queue.push_back({std::stoi(single_field), sender_id});
                                     }
-                                    // Aktualizuj statusy procesów
-                                    textdebug("update_other_processes");
-                                    update_process_statuses();
-
-                                    // Zaktualizuj widok użytkowników w GtkTreeView
-                                    textdebug("update_other_processes_view");
-                                    update_other_processes_view();
+                                    g_idle_add([](gpointer data) -> gboolean {
+                                        // Bezpieczna operacja na GTK
+                                            textdebug("update_process_statuses");
+                                        update_process_statuses();
+                                        textdebug("update_other_processes_view");
+                                        update_other_processes_view();
+                                        return G_SOURCE_REMOVE;
+                                    }, nullptr);
 
                                     std::cout << "Odebrano pole: " << single_field << std::endl;
                                 } else {
@@ -607,13 +618,14 @@ void receive_thread_function() {
                             }
                         }
 
-                        // Aktualizuj statusy procesów
-                        textdebug("update_other_processes");
-                        update_process_statuses();
-
-                        // Zaktualizuj widok użytkowników w GtkTreeView
-                        textdebug("update_other_processes_view");
-                        update_other_processes_view();
+                        g_idle_add([](gpointer data) -> gboolean {
+                            // Bezpieczna operacja na GTK
+                                textdebug("update_process_statuses");
+                            update_process_statuses();
+                            textdebug("update_other_processes_view");
+                            update_other_processes_view();
+                            return G_SOURCE_REMOVE;
+                        }, nullptr);
 
                         break;
                     }
