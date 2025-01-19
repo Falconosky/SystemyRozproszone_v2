@@ -116,7 +116,7 @@
                 </child>
                 <child>
                   <object class="GtkToggleButton" id="auto_accept">
-                    <property name="label" translatable="yes">Automatyczne akcpetuj żądania</property>
+                    <property name="label" translatable="yes">Automatyczne akceptuj żądania</property>
                     <property name="visible">True</property>
                     <property name="can-focus">True</property>
                     <property name="receives-default">True</property>
@@ -173,6 +173,7 @@
                   <object class="GtkButton" id="accept_request">
                     <property name="label" translatable="yes">Zaakceptuj żądanie</property>
                     <property name="visible">True</property>
+                    <property name="sensitive">False</property>
                     <property name="can-focus">True</property>
                     <property name="receives-default">True</property>
                     <property name="margin-end">15</property>

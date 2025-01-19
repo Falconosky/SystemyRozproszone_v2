@@ -20,6 +20,7 @@ X - Przykładowy typ informacji (dodaj inne typy w miarę potrzeb)
 #include "client_data_handling.h"
 #include "client_threads.h"
 #include "connection_initialize.h"
+#include "debuging.h"
 
 extern std::queue<std::string> messageQueue;
 extern std::mutex queueMutex;
@@ -29,9 +30,16 @@ extern GtkBuilder *builder;
 
 std::vector<std::tuple<std::string, int, int, int, std::string, int>> global_client_list; // IP, send_port, rec_port, client_id, message, timestamp
 std::mutex global_client_list_mutex;
+std::vector<std::pair<int, std::pair<std::string, int>>> last_messages;
+std::mutex last_messages_mutex;
 
 bool in_critical_section = false;
+bool critical_requested = false;
+bool debug3 = true;
+std::vector<int> acceptance_list;
+std::mutex acceptance_list_mutex;
 int lamport_clock = 0;
+int critical_entrance_timestamp = 0;
 
 struct CriticalSectionRequest {
     int timestamp;
@@ -57,6 +65,7 @@ void update_lamport_clock(int message_time)
 void send_request(GtkButton *button, gpointer user_data)
 {
     update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
+    critical_entrance_timestamp = lamport_clock;
 
     std::string message = "R" + std::to_string(lamport_clock-1) + ";"; // Budowanie wiadomości
 
@@ -88,10 +97,6 @@ void send_request(GtkButton *button, gpointer user_data)
                 close(sockfd);
                 continue;
             }
-            if (sockfd < 0) {
-                std::cerr << "Nie można utworzyć gniazda." << std::endl;
-                continue;
-            }
 
             // Ustawienie opcji SO_REUSEADDR
             int opt = 1;
@@ -113,8 +118,13 @@ void send_request(GtkButton *button, gpointer user_data)
 
             if (sendto(sockfd, message.c_str(), message.size(), 0, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0) {
                 std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+                close(sockfd);
+                return;
             } else {
                 std::cout << "Wysłano wiadomość do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
+                critical_requested = true;
+                GtkWidget *critical_exit_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_section"));
+                gtk_widget_set_sensitive(critical_exit_button, false);
             }
 
             close(sockfd);
@@ -129,17 +139,230 @@ void send_request(GtkButton *button, gpointer user_data)
         int process_id = atoi(process_id_text);
         logs.emplace_back(lamport_clock, "R", process_id, message, "Wysłano żądanie do wszystkich klientów");
     }
+
+    {
+        std::lock_guard<std::mutex> lock(last_messages_mutex);
+        for (const auto& client : global_client_list) {
+            int process_id = std::get<3>(client);
+
+            // Znajdź istniejący wpis dla danego procesu
+            auto it = std::find_if(
+                last_messages.begin(),
+                last_messages.end(),
+                [process_id](const std::pair<int, std::pair<std::string, int>>& entry) {
+                    return entry.first == process_id;
+                });
+
+            if (it != last_messages.end()) {
+                // Jeśli istnieje wpis, sprawdź jego typ
+                if (it->second.first == "Request") {
+                    // Jeśli to "Request", dodaj "Waiting" bez usuwania "Request"
+                    last_messages.emplace_back(process_id, std::make_pair("Waiting", lamport_clock));
+                    std::cout << "[DEBUG] Dodano 'Waiting' dla procesu ID: " << process_id << std::endl;
+                } else {
+                    // Jeśli to inny typ, usuń istniejący wpis
+                    std::cout << "[DEBUG] Usunięto wpis dla procesu ID: " << process_id
+                              << " o typie: " << it->second.first << std::endl;
+                    last_messages.erase(it);
+
+                    // Dodaj "Waiting" w miejsce usuniętego wpisu
+                    last_messages.emplace_back(process_id, std::make_pair("Waiting", lamport_clock));
+                    std::cout << "[DEBUG] Dodano 'Waiting' dla procesu ID: " << process_id << std::endl;
+                }
+            } else {
+                // Jeśli wpisu nie ma, dodaj nowy "Waiting"
+                last_messages.emplace_back(process_id, std::make_pair("Waiting", lamport_clock));
+                std::cout << "[DEBUG] Dodano nowy wpis 'Waiting' dla procesu ID: " << process_id << std::endl;
+            }
+        }
+    }
+    update_process_statuses();
+    update_other_processes_view();
+
     update_logs();
 }
 
 void accept_request(GtkButton *button, gpointer user_data)
 {
-    update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
+    {
+        if (in_critical_section) {
+            std::cerr << "Nie można zaakceptować prośby - proces jest w sekcji krytycznej." << std::endl;
+            return;
+        }
 
-    std::string message = "A;"; // Budowanie wiadomości
+        update_lamport_clock(0); // Zwiększ lokalny zegar Lamporta
 
+        std::lock_guard<std::mutex> lock(request_queue_mutex);
+        if (request_queue.empty()) {
+            std::cerr << "Brak prośb w kolejce do zaakceptowania." << std::endl;
+            return;
+        }
 
+        // Znajdź najstarsze żądanie
+        auto oldest_request = std::min_element(
+            request_queue.begin(),
+            request_queue.end(),
+            [](const CriticalSectionRequest &a, const CriticalSectionRequest &b) {
+                return a.timestamp < b.timestamp;
+            }
+        );
+
+        int target_process_id = oldest_request->process_id;
+
+        GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "next_process"));
+        if (request_queue.size() > 1) {
+            auto next_request = std::next(std::min_element(request_queue.begin(), request_queue.end(), [](const CriticalSectionRequest &a, const CriticalSectionRequest &b) {
+                return a.timestamp < b.timestamp;
+            }));
+
+            if (next_request != request_queue.end()) {
+                std::string label_text = "P" + std::to_string(next_request->process_id);
+                gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
+            } else {
+                gtk_label_set_text(GTK_LABEL(label), " ");
+                GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+                gtk_widget_set_sensitive(accept_button, false);
+            }
+        } else {
+            gtk_label_set_text(GTK_LABEL(label), " ");
+            GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+            gtk_widget_set_sensitive(accept_button, false);
+        }
+
+        // Przygotuj wiadomość akceptacji
+        std::string message = "A;";
+
+        // Wyślij akceptację do klienta
+        {
+            std::lock_guard<std::mutex> client_lock(global_client_list_mutex);
+            for (const auto &client : global_client_list) {
+                if (std::get<3>(client) == target_process_id) {
+                    int send_port = std::get<2>(client);
+                    const std::string &ip = std::get<0>(client);
+
+                    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+                    if (sockfd < 0) {
+                        std::cerr << "Nie można utworzyć gniazda do wysyłania akceptacji." << std::endl;
+                        return;
+                    }
+
+                    GtkWidget *entry_own_port = GTK_WIDGET(gtk_builder_get_object(builder, "own_port"));
+                    const gchar *own_port_text = gtk_entry_get_text(GTK_ENTRY(entry_own_port));
+                    int own_port = atoi(own_port_text);
+
+                    sockaddr_in own_addr;
+                    memset(&own_addr, 0, sizeof(own_addr));
+                    own_addr.sin_family = AF_INET;
+                    own_addr.sin_addr.s_addr = INADDR_ANY;
+                    own_addr.sin_port = htons(own_port);
+
+                    if (bind(sockfd, (struct sockaddr*)&own_addr, sizeof(own_addr)) < 0) {
+                        int err = errno;
+                        std::cerr << "Nie udało się związać gniazda z portem własnym " << own_port << ". Kod błędu: " << err << " (" << strerror(err) << ")." << std::endl;
+                        close(sockfd);
+                        continue;
+                    }
+
+                    // Ustawienie opcji SO_REUSEADDR
+                    int opt = 1;
+                    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+                        std::cerr << "Nie udało się ustawić opcji SO_REUSEADDR." << std::endl;
+                        close(sockfd);
+                        continue;
+                    }
+
+                    sockaddr_in client_addr;
+                    std::memset(&client_addr, 0, sizeof(client_addr));
+                    client_addr.sin_family = AF_INET;
+                    client_addr.sin_port = htons(send_port);
+                    if (inet_pton(AF_INET, ip.c_str(), &client_addr.sin_addr) <= 0) {
+                        std::cerr << "Nieprawidłowy adres IP klienta: " << ip << "." << std::endl;
+                        close(sockfd);
+                        return;
+                    }
+
+                    if (sendto(sockfd, message.c_str(), message.size(), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+                        std::cerr << "Nie udało się wysłać wiadomości do klienta: " << ip << "." << std::endl;
+                    } else {
+                        std::cout << "Wysłano wiadomość akceptacji do klienta: " << ip << ":" << send_port << " -> " << message << std::endl;
+                    }
+
+                    GtkWidget *entry_process_id = GTK_WIDGET(gtk_builder_get_object(builder, "process_id"));
+                    const gchar *entry_process_id_text = gtk_entry_get_text(GTK_ENTRY(entry_process_id));
+
+                    {
+                        std::lock_guard<std::mutex> lock2(logs_mutex);
+                        logs.emplace_back(lamport_clock, "A", std::stoi(entry_process_id_text), message, "Wysłano akceptacje");
+                    }
+                    update_logs();
+
+                    close(sockfd);
+                    break;
+                }
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(last_messages_mutex);
+            int index = 0;
+            for (const auto& [process_id, message_info] : last_messages) {
+                const std::string& message = message_info.first;
+                int timestamp = message_info.second;
+                index++;
+            }
+        }
+
+        // Usuń najstarsze żądanie z kolejki
+        request_queue.erase(oldest_request);
+
+        {
+            std::lock_guard<std::mutex> lock2(last_messages_mutex);
+
+            // Debug: wyświetlenie stanu przed modyfikacją
+            std::cout << "[DEBUG] Stan przed modyfikacją last_messages:" << std::endl;
+            for (size_t index = 0; index < last_messages.size(); ++index) {
+                const auto& [process_id, message_info] = last_messages[index];
+            }
+
+            // Znajdowanie wpisu `Request` dla `target_process_id`
+            auto it = std::find_if(
+                last_messages.begin(),
+                last_messages.end(),
+                [target_process_id](const std::pair<int, std::pair<std::string, int>>& entry) {
+                    return entry.first == target_process_id && entry.second.first == "Request";
+                });
+
+            if (it != last_messages.end()) {
+                // Usunięcie wpisu `Request`
+                std::cout << "[DEBUG] Usuwanie wpisu dla Process ID: " << it->first
+                          << ", Message: " << it->second.first
+                          << ", Timestamp: " << it->second.second << std::endl;
+                last_messages.erase(it);
+
+                // Dodanie nowego wpisu `Accepted`
+                last_messages.emplace_back(target_process_id, std::make_pair("Accepted", lamport_clock));
+                std::cout << "[DEBUG] Dodano wpis: Process ID: " << target_process_id
+                          << ", Message: Accepted"
+                          << ", Timestamp: " << lamport_clock << std::endl;
+            } else {
+                std::cerr << "[ERROR] Nie znaleziono wpisu Request dla Process ID: " << target_process_id << std::endl;
+            }
+
+            // Debug: wyświetlenie stanu po modyfikacji
+            std::cout << "[DEBUG] Stan po modyfikacji last_messages:" << std::endl;
+            for (size_t index = 0; index < last_messages.size(); ++index) {
+                const auto& [process_id, message_info] = last_messages[index];
+                std::cout << "Index: " << index
+                          << ", Process ID: " << process_id
+                          << ", Message: " << message_info.first
+                          << ", Timestamp: " << message_info.second << std::endl;
+            }
+        }
+    }
+    update_process_statuses();
+    update_other_processes_view();
 }
+
 
 void receive_thread_function() {
     char buffer[1024];
@@ -174,9 +397,13 @@ void receive_thread_function() {
     socklen_t client_len = sizeof(client_addr);
 
     while (running) {
+        textdebug("Przepisywanie bufora");
         std::memset(buffer, 0, sizeof(buffer));
+        textdebug("ssize_t");
         ssize_t bytes_received = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0, (struct sockaddr*)&client_addr, &client_len);
+        textdebug("sprawdzanie czy bity>0");
         if (bytes_received > 0) {
+            textdebug("Odebrano wiadomość");
             buffer[bytes_received] = '\0';
             std::string message(buffer);
             std::cout<<message<<std::endl;
@@ -185,6 +412,7 @@ void receive_thread_function() {
 
             switch (message_type) {
                 case 'T': { // Typ "Table" - lista połączonych użytkowników
+                    textdebug("Wiadomość typu T");
                     std::vector<std::tuple<std::string, int, int, int, std::string, int>> client_list; // IP, send_port, rec_port, client_id, message, timestamp
                     std::vector<std::tuple<int, std::string, int, std::string, std::string>> log; // Czas, Typ, Nadawca, Treść, Dodatkowe informacje
 
@@ -201,6 +429,7 @@ void receive_thread_function() {
                     // Parsuj listę klientów
                     size_t start = 1; // Pomijamy pierwszy znak (typ)
                     while (start < message.size()) {
+                        textdebug("Parsowanie klientow");
                         size_t end = message.find(';', start);
                         std::string client_info = message.substr(start, end - start);
 
@@ -217,6 +446,11 @@ void receive_thread_function() {
                             if (send_port == self_send_port && rec_port == self_rec_port) {
                                 gtk_entry_set_text(GTK_ENTRY(entry_process_id), std::to_string(client_id).c_str());
                                 start = (end == std::string::npos) ? end : end + 1;
+
+                                GtkWidget *window = GTK_WIDGET(gtk_builder_get_object(builder, "connection_window"));
+                                std::string title = "Klient P" + std::to_string(client_id);
+                                gtk_window_set_title(GTK_WINDOW(window), title.c_str());
+
                                 continue;
                             }
                             client_list.emplace_back(ip, send_port, rec_port, client_id, "Nieznany", 0);
@@ -225,8 +459,10 @@ void receive_thread_function() {
                         start = (end == std::string::npos) ? end : end + 1;
                     }
 
+                        textdebug("Aktualizacja zegaru");
                     update_lamport_clock(0);
 
+                        textdebug("Skladowanie logu o tablicy uzytkownikow");
                     GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_t"));
                     if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button))) {
                         {
@@ -236,6 +472,7 @@ void receive_thread_function() {
                         update_logs();
                     }
 
+                        textdebug("Aktualizacja listy klientow w global_client_list");
                     // Zaktualizuj globalną listę klientów
                     {
                         std::lock_guard<std::mutex> lock(global_client_list_mutex);
@@ -243,9 +480,11 @@ void receive_thread_function() {
                     }
 
                     // Aktualizuj statusy procesów
+                        textdebug("update_process_statuses");
                     update_process_statuses();
 
                     // Zaktualizuj widok użytkowników w GtkTreeView
+                        textdebug("update_other_processes_view");
                     update_other_processes_view();
 
                     // Wyświetl listę klientów w konsoli
@@ -260,45 +499,52 @@ void receive_thread_function() {
 
                 case 'R':
                     {
+                        textdebug("Wiadomosc typu R");
+                        int sender_id = 0;
+                        std::string single_field;
                         GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_r"));
                         if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button))) {
                             size_t start = 1; // Pomijamy pierwszy znak (typ)
                             if (start < message.size()) {
+                                textdebug("Znajdowanie ;");
                                 size_t end = message.find(';', start); // Znajdujemy średnik kończący wiadomość
                                 if (end != std::string::npos) {
-                                    std::string single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
-                                    int sender_id = 0;
-
+                                    textdebug("Wyciagnieto pole");
+                                    single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
                                     int sender_port = ntohs(client_addr.sin_port);
 
                                     {
+                                        textdebug("Ustawianie sender id");
                                         std::lock_guard<std::mutex> lock(global_client_list_mutex);
                                         for (const auto& client : global_client_list) {
                                             if (std::get<1>(client) == sender_port) {
                                                 sender_id = std::get<3>(client);
                                                 break;
                                             }
-                                            std::cout<<"sender port:"<<sender_port<<" std::get<1>(client)"<<std::get<1>(client)<<" std::get<3>(client)"<<std::get<3>(client)<<std::endl;
                                         }
                                     }
 
+                                    textdebug("aktualizacja zegara");
                                     update_lamport_clock(std::stoi(single_field));
 
+                                    textdebug("Skladowanie logu");
                                     {
                                         std::lock_guard<std::mutex> lock(logs_mutex);
                                         logs.emplace_back(lamport_clock, "R", sender_id, message, "");
                                     }
                                     update_logs();
 
-
+                                    textdebug("Dodawanie do kolejki żądań");
                                     {
                                         std::lock_guard<std::mutex> lock(request_queue_mutex);
                                         request_queue.push_back({std::stoi(single_field), sender_id});
                                     }
                                     // Aktualizuj statusy procesów
+                                    textdebug("update_other_processes");
                                     update_process_statuses();
 
                                     // Zaktualizuj widok użytkowników w GtkTreeView
+                                    textdebug("update_other_processes_view");
                                     update_other_processes_view();
 
                                     std::cout << "Odebrano pole: " << single_field << std::endl;
@@ -309,6 +555,132 @@ void receive_thread_function() {
                                 std::cerr << "Błąd: wiadomość jest zbyt krótka.\n";
                             }
                         }
+                        textdebug("odblokowywanie guzika accept_request");
+                        if (!in_critical_section && (std::stoi(single_field)<=critical_entrance_timestamp || critical_entrance_timestamp==0))
+                        {
+                            GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+                            gtk_widget_set_sensitive(accept_button, true);
+                        }
+
+                        // Aktualizacja last_messages
+                        textdebug("aktualizacja wiadomosci");
+                        {
+                            std::lock_guard<std::mutex> lock(last_messages_mutex);
+
+                            // Sprawdzanie, czy istnieje wpis dla sender_id
+                            textdebug("sprawdzanei czy istnieje wpis dla sender_id");
+                            auto it = std::find_if(
+                                last_messages.begin(),
+                                last_messages.end(),
+                                [sender_id](const std::pair<int, std::pair<std::string, int>>& entry) {
+                                    return entry.first == sender_id;
+                                });
+
+                            if (it != last_messages.end()) {
+                                // Jeśli istnieje, sprawdź timestamp i ewentualnie zaktualizuj
+                                textdebug("wpisywanie danych");
+                                if (std::stoi(single_field) > it->second.second) {
+                                    it->second = {"Request", std::stoi(single_field)};
+                                }
+                            } else {
+                                // Jeśli nie istnieje, dodaj nowy wpis
+                                textdebug("dodawanie nowego wpisu");
+                                last_messages.emplace_back(sender_id, std::make_pair("Request", std::stoi(single_field)));
+                            }
+                        }
+
+                        // Aktualizuj statusy procesów
+                        textdebug("update_other_processes");
+                        update_process_statuses();
+
+                        // Zaktualizuj widok użytkowników w GtkTreeView
+                        textdebug("update_other_processes_view");
+                        update_other_processes_view();
+
+                        break;
+                    }
+
+                case 'A': {
+                        textdebug("wiadomosc typu A");
+                        int sender_id = 0;
+                        int sender_port = ntohs(client_addr.sin_port);
+
+                        {
+                            std::lock_guard<std::mutex> lock(global_client_list_mutex);
+                            for (const auto& client : global_client_list) {
+                                if (std::get<1>(client) == sender_port) {
+                                    sender_id = std::get<3>(client);
+                                    break;
+                                }
+                            }
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(logs_mutex);
+                            logs.emplace_back(lamport_clock, "A", sender_id, message, "Otrzymano akceptację");
+                        }
+                        update_logs();
+
+                        // Znalezienie sender_id na podstawie portu
+                        {
+                            std::lock_guard<std::mutex> lock(global_client_list_mutex);
+                            for (const auto& client : global_client_list) {
+                                std::cout << "[DEBUG] Sprawdzanie klienta: Port wysyłający: " << std::get<1>(client)
+                                          << ", Oczekiwany port: " << sender_port << std::endl;
+                                if (std::get<1>(client) == sender_port) {
+                                    sender_id = std::get<3>(client);
+                                    std::cout << "[DEBUG] Znaleziono sender_id: " << sender_id << std::endl;
+                                    break;
+                                }
+                            }
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(acceptance_list_mutex);
+                            acceptance_list.push_back(sender_id);
+
+                            std::lock_guard<std::mutex> lock2(global_client_list_mutex);
+                            // Sprawdź, czy wszystkie akceptacje zostały zebrane
+                            if (acceptance_list.size() == global_client_list.size()) {
+                                in_critical_section = true;
+                                std::cout << "[INFO] Wchodzimy do sekcji krytycznej." << std::endl;
+
+                                GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
+                                std::string label_text = "Tak";
+                                gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
+
+                                GtkWidget *critical_exit_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_exit"));
+                                gtk_widget_set_sensitive(critical_exit_button, TRUE);
+
+                                GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+                                gtk_widget_set_sensitive(accept_button, false);
+                            }
+                        }
+
+                        // Aktualizacja last_messages
+                        {
+                            std::lock_guard<std::mutex> lock(last_messages_mutex);
+                            for (size_t index = 0; index < last_messages.size(); ++index) {
+                                const auto& [process_id, message_info] = last_messages[index];
+                            }
+
+                            // Znajdowanie wpisu dla sender_id
+                            auto it = std::find_if(
+                                last_messages.begin(),
+                                last_messages.end(),
+                                [sender_id](const std::pair<int, std::pair<std::string, int>>& entry) {
+                                    return entry.first == sender_id;
+                                });
+
+                            if (it != last_messages.end()) {
+                                last_messages.erase(it);
+                            }
+                            last_messages.emplace_back(sender_id, std::make_pair("Reply", lamport_clock));
+
+                        }
+
+                        update_process_statuses();
+                        update_other_processes_view();
                         break;
                     }
 
@@ -326,24 +698,28 @@ void receive_thread_function() {
     close(sockfd);
 }
 
-void send_thread_function(int sockfd) {
-    while (running) {
-        std::unique_lock<std::mutex> lock(queueMutex);
-        queueCondVar.wait(lock, [] { return !messageQueue.empty() || !running; });
+void critical_exit(GtkButton *button, gpointer user_data) {
+    if (in_critical_section)
+    {
+        in_critical_section = false;
+        GtkWidget *label = GTK_WIDGET(gtk_builder_get_object(builder, "critical_status"));
+        std::string label_text = "Nie";
+        gtk_label_set_text(GTK_LABEL(label), label_text.c_str());
 
-        while (!messageQueue.empty()) {
-            std::string message = messageQueue.front();
-            messageQueue.pop();
-            lock.unlock();
+        GtkWidget *critical_exit_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_exit"));
+        gtk_widget_set_sensitive(critical_exit_button, false);
+        GtkWidget *critical_section_button = GTK_WIDGET(gtk_builder_get_object(builder, "critical_section"));
+        gtk_widget_set_sensitive(critical_section_button, true);
 
-            // Przetwarzanie odebranej wiadomości
-            std::cout << "Odebrano: " << message << std::endl;
-
-            // Przykładowa odpowiedź
-            std::string response = "Otrzymano: " + message;
-            send(sockfd, response.c_str(), response.size(), 0);
-
-            lock.lock();
+        {
+            std::lock_guard<std::mutex> lock(request_queue_mutex);
+            if (!request_queue.empty())
+            {
+                GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
+                gtk_widget_set_sensitive(accept_button, true);
+            }
         }
+
+        critical_entrance_timestamp = 0;
     }
 }

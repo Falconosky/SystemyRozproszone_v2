@@ -29,6 +29,8 @@ add_executable(connection_manager main.cpp
         client/client_data_handling.h
         client/connection_initialize.cpp
         client/connection_initialize.h
+        client/debuging.cpp
+        client/debuging.h
 )
 
 # Linkowanie GTK+

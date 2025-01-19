@@ -9,6 +9,8 @@
 #include <map>
 #include <string>
 #include <mutex>
+#include "connection_initialize.h"
+#include "debuging.h"
 
 extern std::map<int, std::string> process_states;
 extern std::mutex process_states_mutex;
