@@ -4,8 +4,8 @@
 
 #include "debuging.h"
 
-bool t_debug_last_messages = true;
-bool szczegolowy_debug = true;
+bool t_debug_last_messages = false;
+bool szczegolowy_debug = false;
 
 void debug_last_messages() {
     if (t_debug_last_messages)

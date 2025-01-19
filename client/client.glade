@@ -707,10 +707,11 @@
                     </child>
                     <child>
                       <object class="GtkToggleButton">
-                        <property name="label" translatable="yes">togglebutton</property>
+                        <property name="label" translatable="yes">A - Pozwolenie wejscia do sekcji krytycznej</property>
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
+                        <property name="active">True</property>
                       </object>
                       <packing>
                         <property name="expand">False</property>

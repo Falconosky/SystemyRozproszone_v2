@@ -35,7 +35,7 @@ std::mutex last_messages_mutex;
 
 bool in_critical_section = false;
 bool critical_requested = false;
-bool debug3 = true;
+bool debug3 = false;
 std::vector<int> acceptance_list;
 std::mutex acceptance_list_mutex;
 int lamport_clock = 0;
@@ -531,58 +531,59 @@ void receive_thread_function() {
                         textdebug("Wiadomosc typu R");
                         int sender_id = 0;
                         std::string single_field;
-                        GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_r"));
-                        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button))) {
-                            size_t start = 1; // Pomijamy pierwszy znak (typ)
-                            if (start < message.size()) {
-                                textdebug("Znajdowanie ;");
-                                size_t end = message.find(';', start); // Znajdujemy średnik kończący wiadomość
-                                if (end != std::string::npos) {
-                                    textdebug("Wyciagnieto pole");
-                                    single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
-                                    int sender_port = ntohs(client_addr.sin_port);
+                        size_t start = 1; // Pomijamy pierwszy znak (typ)
+                        if (start < message.size()) {
+                            textdebug("Znajdowanie ;");
+                            size_t end = message.find(';', start); // Znajdujemy średnik kończący wiadomość
+                            if (end != std::string::npos) {
+                                textdebug("Wyciagnieto pole");
+                                single_field = message.substr(start, end - start); // Wyciągamy jedyne pole
+                                int sender_port = ntohs(client_addr.sin_port);
 
-                                    {
-                                        textdebug("Ustawianie sender id");
-                                        std::lock_guard<std::mutex> lock(global_client_list_mutex);
-                                        for (const auto& client : global_client_list) {
-                                            if (std::get<1>(client) == sender_port) {
-                                                sender_id = std::get<3>(client);
-                                                break;
-                                            }
+                                {
+                                    textdebug("Ustawianie sender id");
+                                    std::lock_guard<std::mutex> lock(global_client_list_mutex);
+                                    for (const auto& client : global_client_list) {
+                                        if (std::get<1>(client) == sender_port) {
+                                            sender_id = std::get<3>(client);
+                                            break;
                                         }
                                     }
+                                }
 
-                                    textdebug("aktualizacja zegara");
-                                    update_lamport_clock(std::stoi(single_field));
+                                textdebug("aktualizacja zegara");
+                                update_lamport_clock(std::stoi(single_field));
 
+                                GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_r"));
+                                if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button)))
+                                {
                                     textdebug("Skladowanie logu");
                                     {
                                         std::lock_guard<std::mutex> lock(logs_mutex);
                                         logs.emplace_back(lamport_clock, "R", sender_id, message, "");
                                     }
                                     update_logs();
-
-                                    textdebug("Dodawanie do kolejki żądań");
-                                    {
-                                        std::lock_guard<std::mutex> lock(request_queue_mutex);
-                                        request_queue.push_back({std::stoi(single_field), sender_id});
-                                    }
-                                    gdk_threads_add_idle([](void*) -> gboolean {
-                                        textdebug("update_process_statuses");
-                                        update_process_statuses();
-                                        textdebug("update_other_processes_view");
-                                        update_other_processes_view();
-                                        return FALSE; // Wykonaj funkcję tylko raz
-                                    }, nullptr);
-
-                                    std::cout << "Odebrano pole: " << single_field << std::endl;
-                                } else {
-                                    std::cerr << "Błąd: brak średnika kończącego wiadomość.\n";
                                 }
+
+                                textdebug("Dodawanie do kolejki żądań");
+                                {
+                                    std::lock_guard<std::mutex> lock(request_queue_mutex);
+                                    request_queue.push_back({std::stoi(single_field), sender_id});
+                                }
+                                gdk_threads_add_idle([](void*) -> gboolean {
+                                    textdebug("update_process_statuses");
+                                    update_process_statuses();
+                                    textdebug("update_other_processes_view");
+                                    update_other_processes_view();
+                                    return FALSE; // Wykonaj funkcję tylko raz
+                                }, nullptr);
+
+                                std::cout << "Odebrano pole: " << single_field << std::endl;
                             } else {
-                                std::cerr << "Błąd: wiadomość jest zbyt krótka.\n";
+                                std::cerr << "Błąd: brak średnika kończącego wiadomość.\n";
                             }
+                        } else {
+                            std::cerr << "Błąd: wiadomość jest zbyt krótka.\n";
                         }
                         textdebug("odblokowywanie guzika accept_request");
                         if (!in_critical_section && (std::stoi(single_field)<=critical_entrance_timestamp || critical_entrance_timestamp==0))
@@ -597,7 +598,7 @@ void receive_thread_function() {
                             std::lock_guard<std::mutex> lock(last_messages_mutex);
 
                             // Sprawdzanie, czy istnieje wpis dla sender_id
-                            textdebug("sprawdzanei czy istnieje wpis dla sender_id");
+                            textdebug("sprawdzanie czy istnieje wpis dla sender_id");
                             auto it = std::find_if(
                                 last_messages.begin(),
                                 last_messages.end(),
@@ -608,9 +609,7 @@ void receive_thread_function() {
                             if (it != last_messages.end()) {
                                 // Jeśli istnieje, sprawdź timestamp i ewentualnie zaktualizuj
                                 textdebug("wpisywanie danych");
-                                if (std::stoi(single_field) > it->second.second) {
-                                    it->second = {"Request", std::stoi(single_field)};
-                                }
+                                it->second = {"Request", std::stoi(single_field)};
                             } else {
                                 // Jeśli nie istnieje, dodaj nowy wpis
                                 textdebug("dodawanie nowego wpisu");
@@ -645,11 +644,15 @@ void receive_thread_function() {
                             }
                         }
 
+                        GtkWidget *toggle_button = GTK_WIDGET(gtk_builder_get_object(builder, "type_a"));
+                        if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle_button)))
                         {
-                            std::lock_guard<std::mutex> lock(logs_mutex);
-                            logs.emplace_back(lamport_clock, "A", sender_id, message, "Otrzymano akceptację");
+                            {
+                                std::lock_guard<std::mutex> lock(logs_mutex);
+                                logs.emplace_back(lamport_clock, "A", sender_id, message, "Otrzymano akceptację");
+                            }
+                            update_logs();
                         }
-                        update_logs();
 
                         // Znalezienie sender_id na podstawie portu
                         {
