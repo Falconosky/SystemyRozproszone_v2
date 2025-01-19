@@ -15,7 +15,7 @@
 
 std::vector<std::tuple<std::string, int, int, int, int>> connected_clients; // IP, send_port, rec_port, client_id
 std::mutex clients_mutex;
-bool debug5 = true;
+bool debug5 = false;
 
 // Funkcja do pobierania lokalnego adresu IP innego niż 127.0.0.1
 std::string get_non_loopback_ip2() {

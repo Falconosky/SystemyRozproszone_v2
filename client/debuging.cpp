@@ -4,7 +4,7 @@
 
 #include "debuging.h"
 
-bool t_debug_last_messages = false;
+bool t_debug_last_messages = true;
 bool szczegolowy_debug = false;
 
 void debug_last_messages() {

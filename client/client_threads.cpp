@@ -668,6 +668,28 @@ void receive_thread_function() {
                             }
                         }
 
+                        // Aktualizacja last_messages
+                        {
+                            std::lock_guard<std::mutex> lock(last_messages_mutex);
+                            for (size_t index = 0; index < last_messages.size(); ++index) {
+                                const auto& [process_id, message_info] = last_messages[index];
+                            }
+
+                            // Znajdowanie wpisu dla sender_id
+                            auto it = std::find_if(
+                                last_messages.begin(),
+                                last_messages.end(),
+                                [sender_id](const std::pair<int, std::pair<std::string, int>>& entry) {
+                                    return entry.first == sender_id;
+                                });
+
+                            if (it != last_messages.end()) {
+                                last_messages.erase(it);
+                            }
+                            last_messages.emplace_back(sender_id, std::make_pair("Reply", lamport_clock));
+
+                        }
+
                         {
                             std::lock_guard<std::mutex> lock(acceptance_list_mutex);
                             acceptance_list.push_back(sender_id);
@@ -689,29 +711,19 @@ void receive_thread_function() {
 
                                 GtkWidget *accept_button = GTK_WIDGET(gtk_builder_get_object(builder, "accept_request"));
                                 gtk_widget_set_sensitive(accept_button, false);
+
+                                // Usunięcie wszystkich elementów z last_messages, których wiadomość == "Reply"
+                                {
+                                    std::lock_guard<std::mutex> lock(last_messages_mutex);
+                                    auto new_end = std::remove_if(
+                                        last_messages.begin(),
+                                        last_messages.end(),
+                                        [](const std::pair<int, std::pair<std::string, int>> &entry) {
+                                            return entry.second.first == "Reply";
+                                        });
+                                    last_messages.erase(new_end, last_messages.end());
+                                }
                             }
-                        }
-
-                        // Aktualizacja last_messages
-                        {
-                            std::lock_guard<std::mutex> lock(last_messages_mutex);
-                            for (size_t index = 0; index < last_messages.size(); ++index) {
-                                const auto& [process_id, message_info] = last_messages[index];
-                            }
-
-                            // Znajdowanie wpisu dla sender_id
-                            auto it = std::find_if(
-                                last_messages.begin(),
-                                last_messages.end(),
-                                [sender_id](const std::pair<int, std::pair<std::string, int>>& entry) {
-                                    return entry.first == sender_id;
-                                });
-
-                            if (it != last_messages.end()) {
-                                last_messages.erase(it);
-                            }
-                            last_messages.emplace_back(sender_id, std::make_pair("Reply", lamport_clock));
-
                         }
 
                         gdk_threads_add_idle([](void*) -> gboolean {
